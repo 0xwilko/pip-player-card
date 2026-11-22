@@ -4,7 +4,7 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.9.0';
+const VERSION = '1.9.1';
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -36,6 +36,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.9.1','22 Nov 2026',['Black finish restyled in graphite so it matches the silver player.','Tells you plainly when Music Assistant is not set up yet.']],
 ['1.9.0', '22 Nov 2026', ['Published on GitHub for HACS and the Marketplace.', 'Album art only loads from safe web addresses.']],
 ['1.8.1', '22 Nov 2026', ['Discord on the About page now opens the profile.']],
 ['1.8.0', '22 Nov 2026', ['About page with the maker and links.', 'This version history.']],
@@ -224,18 +225,22 @@ select:disabled{color:#8a9097;background-color:#eef0f2}
 .hasexit .exit{display:flex}
 .black .exit{background:radial-gradient(circle at 50% 32%,#5c5e62 0%,#3a3c3f 60%,#26272a 100%);color:#e2505c;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 0 0 1px rgba(0,0,0,.5),0 1px 2px rgba(0,0,0,.5)}
 /* Black finish */
-.black .body{background:repeating-linear-gradient(90deg,rgba(255,255,255,.035) 0 1px,rgba(0,0,0,.05) 1px 2px,rgba(255,255,255,0) 2px 3px),
-linear-gradient(165deg,#45474b 0%,#26282b 34%,#18191b 62%,#2c2e31 100%);
-box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -2px 3px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.04),0 14px 28px rgba(0,0,0,.4),0 3px 6px rgba(0,0,0,.3)}
-.black .body::after{box-shadow:inset 0 0 1u rgba(0,0,0,.85),inset 0 0 3.6u rgba(0,0,0,.45),inset 3.4u 0 4.2u -2u rgba(0,0,0,.6),inset -3.4u 0 4.2u -2u rgba(0,0,0,.6),inset 0 1.8u 2.2u -.6u rgba(255,255,255,.18),inset 0 -2.8u 3.8u -1u rgba(0,0,0,.65)}
-.black .holdlbl{color:rgba(255,255,255,.34);text-shadow:0 -1px 0 rgba(0,0,0,.6)}
-.black .bezel{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 1px 0 rgba(255,255,255,.12)}
-.black .wheel{background:radial-gradient(circle at 50% 36%,#3d3f43 0%,#2d2f32 50%,#232427 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,.12),inset 0 -1px 2px rgba(0,0,0,.4),0 0 0 1px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,.08)}
-.black .g{color:#8d939a}.black .g svg{fill:#8d939a}
+.black .body{background:repeating-linear-gradient(90deg,rgba(255,255,255,.045) 0 1px,rgba(0,0,0,.06) 1px 2px,rgba(255,255,255,0) 2px 3px),
+linear-gradient(165deg,#64676c 0%,#3b3d41 28%,#26282b 56%,#35373b 80%,#55585d 100%);
+box-shadow:inset 0 1px 0 rgba(255,255,255,.42),inset 0 -2px 3px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.14),0 0 0 1px rgba(0,0,0,.6),0 14px 28px rgba(0,0,0,.45),0 3px 6px rgba(0,0,0,.3)}
+.black .body::after{box-shadow:inset 0 0 1u rgba(0,0,0,.6),inset 0 0 3.6u rgba(0,0,0,.3),inset 3.4u 0 4.2u -2u rgba(0,0,0,.42),inset -3.4u 0 4.2u -2u rgba(0,0,0,.42),inset 0 1.8u 2.2u -.6u rgba(255,255,255,.3),inset 0 -2.8u 3.8u -1u rgba(0,0,0,.5)}
+.black .holdlbl{color:rgba(255,255,255,.45);text-shadow:0 -1px 0 rgba(0,0,0,.6)}
+.black .bezel{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 1px 0 rgba(255,255,255,.22),0 -1px 0 rgba(0,0,0,.4)}
+.black .wheel{background:radial-gradient(circle at 50% 36%,#303236 0%,#212225 46%,#151618 100%);box-shadow:inset 0 1px 1px rgba(255,255,255,.18),inset 0 -1px 2px rgba(0,0,0,.5),0 0 0 1px rgba(0,0,0,.55),0 1px 0 rgba(255,255,255,.16)}
+.black .g{color:#a2a8af}.black .g svg{fill:#a2a8af}
 .black .wheel.p-menu .g-menu,.black .wheel.p-prev .g-prev svg,.black .wheel.p-next .g-next svg,.black .wheel.p-play .g-play svg{color:#e6e8eb;fill:#e6e8eb}
-.black .center{background:radial-gradient(circle at 50% 32%,#46484c,#2a2c2f);box-shadow:0 0 0 1px rgba(0,0,0,.55),inset 0 1px 1px rgba(255,255,255,.14),0 1px 2px rgba(0,0,0,.4)}
+.black .center{background:radial-gradient(circle at 50% 32%,#3c3e42,#1c1d20);box-shadow:0 0 0 1px rgba(0,0,0,.6),inset 0 1px 1px rgba(255,255,255,.16),0 1px 0 rgba(255,255,255,.1)}
 .black .center:active,.black .center.p{background:radial-gradient(circle at 50% 40%,#2a2c2f,#1d1e20)}
-.black .brand{color:rgba(255,255,255,.34);text-shadow:0 -1px 0 rgba(0,0,0,.6)}
+.black .brand{color:rgba(255,255,255,.45);text-shadow:0 -1px 0 rgba(0,0,0,.6)}
+.black .hold{background:linear-gradient(#1c1d20,#33353a);box-shadow:inset 0 1px 2px rgba(0,0,0,.7),0 1px 0 rgba(255,255,255,.16)}
+.black.held .hold{background:linear-gradient(#f5a04a,#d9731a)}
+.black .hold .knob{background:linear-gradient(#8d9198,#5b5f65);box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 1px 2px rgba(0,0,0,.6)}
+
 .black .ctl{background:#1f2023;color:#f1f2f3;box-shadow:0 2px 10px rgba(0,0,0,.35),inset 0 0 0 1px rgba(255,255,255,.06)}
 .black .fld > svg{fill:#a9afb6}
 .black select{color:#f1f2f3;background-color:#2b2c30;border-color:#3d3f44;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23bbb' d='M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z'/%3E%3C/svg%3E")}
@@ -683,6 +688,14 @@ this._stack = [{ id: 'main', sel: ['playlists', 'search', 'radio', 'speakers'].i
 this._scrollSel = true;
 this._render();
 }
+_noMass() {
+const h = this._hass;
+if (!h) return false;
+const list = this._config.players;
+if (Array.isArray(list) && list.length) return false;
+if (!Object.keys(h.entities || {}).length) return false;
+return !this._playerIds().length;
+}
 _menu(id) {
 const st = this._state();
 const a = (st && st.attributes) || {};
@@ -693,6 +706,16 @@ if (c.error && !c.items) return [{ label: "Couldn't load – try again", act: re
 if (!c.items.length) return [{ label: 'Nothing here', dis: true }];
 return c.items.map(map);
 };
+if (id === 'main' && this._noMass()) {
+const txt = (label) => ({ label, info: true, txt: true });
+return { title: 'Pip Player', items: [
+{ label: 'Pip Player', info: true, logo: true },
+txt('Pip Player needs Music Assistant to play your music.'),
+txt('Install the Music Assistant app and add the Music Assistant integration, then add your speakers. Pip Player finds them by itself.'),
+{ label: 'How to set it up', act: () => { try { window.open('https://www.music-assistant.io/get-started/', '_blank', 'noopener,noreferrer'); } catch (e) { /* ignore */ } } },
+{ label: 'Settings', push: 'settings' },
+] };
+}
 if (id === 'main') {
 return { title: 'Pip Player', items: [
 { label: 'Now Playing', np: true },

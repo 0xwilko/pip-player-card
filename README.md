@@ -4,6 +4,8 @@ A retro click-wheel music player card for Home Assistant and Music Assistant.
 
 Spin the wheel to scroll and change the volume, press the buttons to skip and play, and pick your music from menus, just like the classic pocket music players of the 2000s.
 
+> **Before you start: Pip Player needs Music Assistant.** You need the Music Assistant app (the server) and the Music Assistant integration in Home Assistant, with at least one speaker added. Pip Player plays everything through Music Assistant, so it won't work without it. [Set up Music Assistant](https://www.music-assistant.io/get-started/)
+
 ![Pip Player](images/pip-player.jpg)
 
 [![Open your Home Assistant instance and open this repository.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=0xwilko&repository=pip-player-card&category=plugin)
@@ -23,9 +25,13 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 ## What you need
 
 - Home Assistant 2025.2 or newer.
-- The [Music Assistant](https://music-assistant.io/) integration with at least one player.
+- **Music Assistant (required):** the [Music Assistant app](https://www.music-assistant.io/get-started/) (the server) and the [Music Assistant integration](https://www.home-assistant.io/integrations/music_assistant/), with at least one speaker added. Set this up first.
+
+If Music Assistant isn't set up, Pip Player shows a message saying so, with a link to the setup guide.
 
 ## Install
+
+Set up Music Assistant first (see above). Then:
 
 Home Assistant 2026.11 and newer (Marketplace):
 
