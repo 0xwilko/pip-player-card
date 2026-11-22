@@ -1,0 +1,6 @@
+{
+  "name": "Pip Player",
+  "filename": "pip-player-card.js",
+  "render_readme": true,
+  "homeassistant": "2025.2.0"
+}
