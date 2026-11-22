@@ -15,6 +15,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 - A silver (or black) player body with a working click wheel: turn it to scroll menus or change the volume, press MENU, ⏮, ⏭, ▶❚❚ and the centre button.
 - Now Playing screen with album art, title, artist, album and a progress bar. Tap the screen to play or pause.
 - Playlists, radio stations and speakers, all from Music Assistant.
+- A mute symbol shows when a speaker is muted. Mute it from the menu, and turning the volume brings the sound back.
 - Search your music and Spotify (or any other Music Assistant provider) by song, artist, album or playlist, plus search inside any playlist. Your phone keyboard pops up, and its microphone key lets you speak the search.
 - Picking or skipping a song gets it ready without playing it. Nothing starts until you press play.
 - If Spotify (or another service that only plays on one speaker at a time) is already playing elsewhere, Pip Player tells you which speaker has it and lets you play here or move that music here.
@@ -118,6 +119,8 @@ All of these can be set in the card's options screen, except `admin_ids`, which 
 | Now Playing | Volume (or scrub) | Menus | Previous / next song | Play or pause | Switch the wheel between volume and scrubbing |
 
 Hold MENU to jump straight to the main menu. On the Now Playing screen you can also tap the screen to play or pause.
+
+A crossed-out speaker at the top of the screen means the speaker is muted. Turn the volume to bring the sound back, or press MENU and choose Mute to turn mute on or off.
 
 ## The Hold switch as an admin lock
 

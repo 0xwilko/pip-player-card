@@ -4,7 +4,7 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.10.1';
+const VERSION = '1.10.2';
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -22,6 +22,7 @@ note: 'M12 3V13.55C11.41 13.21 10.73 13 10 13C7.79 13 6 14.79 6 17S7.79 21 10 21
 radio: 'M20,6A2,2 0 0,1 22,8V20A2,2 0 0,1 20,22H4A2,2 0 0,1 2,20V8C2,7.15 2.53,6.42 3.28,6.13L15.71,1L16.47,2.83L8.83,6H20M20,8H4V12H16V10H18V12H20V8M7,14A3,3 0 0,0 4,17A3,3 0 0,0 7,20A3,3 0 0,0 10,17A3,3 0 0,0 7,14Z',
 volLow: 'M7,9V15H11L16,20V4L11,9H7Z',
 volHigh: 'M14,3.23V5.29C16.89,6.15 19,8.83 19,12C19,15.17 16.89,17.84 14,18.7V20.77C18,19.86 21,16.28 21,12C21,7.72 18,4.14 14,3.23M16.5,12C16.5,10.23 15.5,8.71 14,7.97V16C15.5,15.29 16.5,13.76 16.5,12M3,9V15H7L12,20V4L7,9H3Z',
+volOff: 'M12,4L9.91,6.09L12,8.18M4.27,3L3,4.27L7.73,9H3V15H7L12,20V13.27L16.25,17.53C15.58,18.04 14.83,18.46 14,18.7V20.77C15.38,20.45 16.63,19.82 17.68,18.96L19.73,21L21,19.73L12,10.73M19,12C19,12.94 18.8,13.82 18.46,14.64L19.97,16.15C20.62,14.91 21,13.5 21,12C21,7.72 18,4.14 14,3.23V5.29C16.89,6.15 19,8.83 19,12M16.5,12C16.5,10.23 15.5,8.71 14,7.97V10.18L16.45,12.63C16.5,12.43 16.5,12.21 16.5,12Z',
 chevron: 'M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z',
 search: 'M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z',
 off: 'M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M4,12A8,8 0 0,1 12,4C13.85,4 15.55,4.63 16.9,5.69L5.69,16.9C4.63,15.55 4,13.85 4,12M12,20C10.15,20 8.45,19.37 7.1,18.31L18.31,7.1C19.37,8.45 20,10.15 20,12A8,8 0 0,1 12,20Z',
@@ -36,6 +37,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.10.2','22 Nov 2026',['A mute symbol shows at the top of the screen when the speaker is muted.','Turn mute on or off in MENU, or just turn the volume to bring the sound back.']],
 ['1.10.1','22 Nov 2026',['If Spotify is already playing on another speaker, Pip Player says which one and lets you play here or move the music here.','Home Assistant’s grey error bar no longer pops up over the player.']],
 ['1.10.0','22 Nov 2026',['Options screen in the card editor, so you can set everything without YAML.']],
 ['1.9.1','22 Nov 2026',['Black finish restyled in graphite so it matches the silver player.','Tells you plainly when Music Assistant is not set up yet.']],
@@ -654,6 +656,20 @@ const ok = await this._play(t.id, () => this._startTrack(pid, i));
 const rest = String(pid).startsWith('q:') ? [] : items.slice(i + 1, i + 200).map((x) => x.id);
 if (ok && rest.length) this._svc('music_assistant', 'play_media', { media_id: rest, enqueue: 'add' });
 }
+_muted(st = this._state()) { return this._ok(st) && !!st.attributes.is_volume_muted; }
+_toggleMute() {
+const st = this._state();
+if (!this._ok(st)) return this._toast('Speaker offline');
+if (((st.attributes.supported_features || 0) & 8) !== 8) return this._toast('This speaker has no mute');
+const m = !st.attributes.is_volume_muted;
+this._svc('media_player', 'volume_mute', { is_volume_muted: m }).then((ok) => { if (ok) this._toast(m ? 'Muted' : 'Sound on', 1000); });
+}
+_unmuteIfMuted() {
+// turning the volume always brings the sound back
+if (!this._muted() || (this._unmuteAt && Date.now() - this._unmuteAt < 3000)) return;
+this._unmuteAt = Date.now();
+this._svc('media_player', 'volume_mute', { is_volume_muted: false });
+}
 _toggleShuffle() {
 const a = (this._state() || {}).attributes || {};
 this._svc('media_player', 'shuffle_set', { shuffle: !a.shuffle });
@@ -690,6 +706,7 @@ this._overlayUntil = Date.now() + 1600;
 this._render();
 }
 _setVol(v) {
+this._unmuteIfMuted();
 this._volLocal = v;
 this._volUntil = Date.now() + 2500;
 this._volPending = v;
@@ -811,6 +828,7 @@ return { title: 'Pip Player', items: [
 { label: 'Speakers', push: 'speakers' },
 { label: 'Shuffle', val: a.shuffle ? 'On' : 'Off', act: () => this._toggleShuffle() },
 { label: 'Repeat', val: { off: 'Off', all: 'All', one: 'One' }[a.repeat || 'off'] || 'Off', act: () => this._cycleRepeat() },
+{ label: 'Mute', val: a.is_volume_muted ? 'On' : 'Off', act: () => this._toggleMute() },
 { label: 'Settings', push: 'settings' },
 ] };
 }
@@ -1502,7 +1520,7 @@ if (onNP && !this._hasMedia(st) && ok) { /* keep NP but it will show the empty m
 
 // header
 const stIcon = !ok ? '' : (this._staged && onNP) ? ic(P.pause) : st.state === 'playing' ? ic(P.play) : st.state === 'paused' ? ic(P.pause) : '';
-this._setHTML(el.hdrL, stIcon);
+this._setHTML(el.hdrL, stIcon + (this._muted(st) ? ic(P.volOff) : ''));
 el.hdrT.textContent = onNP ? (cur ? cur.name : 'No speaker') : this._menu(top.id).title;
 let r = '';
 if (ok && a.shuffle) r += ic(P.shuffle);
@@ -1608,7 +1626,7 @@ el.knob.style.left = pct + '%';
 el.pbar.classList.toggle('seek', this._mode === 'seek');
 el.el.textContent = fmt(pos);
 el.rm.textContent = '-' + fmt(dur - pos);
-el.mid.textContent = this._mode === 'seek' ? 'SCRUB' : '';
+el.mid.textContent = this._mode === 'seek' ? 'SCRUB' : (a.is_volume_muted ? 'MUTED' : '');
 }
 }
 _drawControls(cur, st, a, ok) {
