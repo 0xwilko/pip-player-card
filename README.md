@@ -17,6 +17,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 - Playlists, radio stations and speakers, all from Music Assistant.
 - Search your music and Spotify (or any other Music Assistant provider) by song, artist, album or playlist, plus search inside any playlist. Your phone keyboard pops up, and its microphone key lets you speak the search.
 - Picking or skipping a song gets it ready without playing it. Nothing starts until you press play.
+- If Spotify (or another service that only plays on one speaker at a time) is already playing elsewhere, Pip Player tells you which speaker has it and lets you play here or move that music here.
 - Hold switch: on its own it locks the player, or point it at a helper to make it an admin lock, so only chosen people can take over the music.
 - Full-screen phone mode that fits the screen exactly, with a power button to leave.
 - Click sounds (and a light tap on iPhone with iOS 18 or later), saved per person in Home Assistant.

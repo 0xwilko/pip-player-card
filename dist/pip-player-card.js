@@ -4,7 +4,7 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.10.0';
+const VERSION = '1.10.1';
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -36,6 +36,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.10.1','22 Nov 2026',['If Spotify is already playing on another speaker, Pip Player says which one and lets you play here or move the music here.','Home Assistant’s grey error bar no longer pops up over the player.']],
 ['1.10.0','22 Nov 2026',['Options screen in the card editor, so you can set everything without YAML.']],
 ['1.9.1','22 Nov 2026',['Black finish restyled in graphite so it matches the silver player.','Tells you plainly when Music Assistant is not set up yet.']],
 ['1.9.0', '22 Nov 2026', ['Published on GitHub for HACS and the Marketplace.', 'Album art only loads from safe web addresses.']],
@@ -533,23 +534,105 @@ return c;
 }
 
 /* ---------- actions ---------- */
-_svc(domain, service, data = {}, entity) {
+_svc(domain, service, data = {}, entity, retry) {
 if (this._blocked()) { this._held(); return Promise.resolve(false); }
 const e = entity || this._player;
 const st = e && this._hass.states[e];
 if (!this._ok(st)) { this._toast('Speaker offline'); return Promise.resolve(false); }
-return this._hass.callService(domain, service, data, { entity_id: e })
+// false = Pip Player shows its own message instead of Home Assistant's grey error bar
+return this._hass.callService(domain, service, data, { entity_id: e }, false)
 .then(() => true)
-.catch((err) => { console.warn('[pip-player]', domain + '.' + service, err); this._toast("Couldn't do that"); return false; });
+.catch((err) => {
+console.warn('[pip-player]', domain + '.' + service, err);
+if (retry !== null && this._inUse(err)) {
+this._busy(err, e, retry || (() => this._svc(domain, service === 'media_play_pause' ? 'media_play' : service, data, e)));
+} else this._toast("Couldn't do that");
+return false;
+});
 }
-async _play(mediaId) {
+async _play(mediaId, retry) {
 this._toast('Loading…', 1400);
 this._showNP();
-return this._svc('music_assistant', 'play_media', { media_id: mediaId, enqueue: 'replace' });
+return this._svc('music_assistant', 'play_media', { media_id: mediaId, enqueue: 'replace' }, undefined, retry);
 }
 async _playPlaylist(pid, shuffle) {
 await this._svc('media_player', 'shuffle_set', { shuffle: !!shuffle });
-return this._play(pid);
+return this._play(pid, () => this._playPlaylist(pid, shuffle));
+}
+/* ---------- music service in use ----------
+* Some music services (Spotify) can only stream to one speaker at a time per account.
+* Music Assistant refuses a second stream; Pip Player then says which speaker has it
+* and offers to stop it and play here, or move its music here. */
+_inUse(err) {
+return /simultaneous stream|concurrent source stream|is already playing on/i.test(String((err && err.message) || err || ''));
+}
+_nameOf(e) {
+const p = this._players().find((x) => x.entity === e);
+const st = this._hass.states[e];
+return String((p && p.name) || (st && st.attributes.friendly_name) || e).replace(/ @ .*$/, '').trim();
+}
+_holder(prov, here, named) {
+const h = this._hass;
+const ids = Object.values(h.entities || {})
+.filter((x) => x.platform === 'music_assistant' && x.entity_id.startsWith('media_player.'))
+.map((x) => x.entity_id);
+this._playerIds().forEach((x) => { if (!ids.includes(x)) ids.push(x); });
+const sts = ids.filter((x) => x !== here).map((x) => h.states[x]).filter(Boolean);
+if (named) {
+const n = norm(named);
+const hit = sts.find((s) => norm(this._nameOf(s.entity_id)) === n || norm(s.attributes.friendly_name) === n);
+if (hit) return hit.entity_id;
+}
+const live = sts.filter((s) => ['playing', 'buffering'].includes(s.state) && !isRadio(s.attributes));
+const key = norm(prov).split(' ')[0];
+const uses = live.filter((s) => key && String(s.attributes.media_content_id || '').toLowerCase().includes(key));
+const grp = (s) => (s.attributes.mass_player_type === 'group' ? 1 : 0);
+const pick = (uses.length ? uses : live).slice().sort((a, b) => grp(b) - grp(a))[0];
+return pick ? pick.entity_id : null;
+}
+_busy(err, here, retry) {
+const msg = String((err && err.message) || err || '').trim();
+let m = msg.match(/^(.+?) is already playing on (.+?)[.]?$/i);
+const named = m ? m[2] : '';
+let prov = m ? m[1] : '';
+if (!prov) { m = msg.match(/^(.+?) has reached its limit/i); prov = m ? m[1] : ''; }
+prov = String(prov).trim().slice(0, 24) || 'Music';
+this._busyInfo = { prov, here, retry, other: this._holder(prov, here, named) };
+clearTimeout(this._toastT);
+if (this._el) this._el.toast.classList.remove('on');
+const top = this._top();
+if (top.id === 'busy') top.sel = 0;
+else this._stack.push({ id: 'busy', sel: 0 });
+this._scrollSel = true;
+this._render();
+}
+_busyDone() {
+this._busyInfo = null;
+if (this._top().id === 'busy') this._stack.pop();
+this._scrollSel = true;
+this._render();
+}
+async _busyHere() {
+// stop the other speaker, then do again what was asked for here
+const b = this._busyInfo;
+this._busyDone();
+if (!b || !b.other) return;
+if (this._blocked()) return this._held();
+this._toast('Stopping ' + this._nameOf(b.other) + '…', 2500);
+await this._quiet('media_stop', {}, b.other);
+await this._waitState(b.other, (s) => !['playing', 'buffering'].includes(s.state), 4000);
+await new Promise((r) => setTimeout(r, 600));
+if (b.retry) b.retry();
+}
+async _busyMove() {
+// Music Assistant stops the other speaker and carries on its song here
+const b = this._busyInfo;
+this._busyDone();
+if (!b || !b.other) return;
+this._staged = null;
+this._toast('Moving the music here…', 2000);
+const ok = await this._svc('music_assistant', 'transfer_queue', { source_player: b.other, auto_play: true }, b.here, null);
+if (ok) this._showNP();
 }
 _playTrack(pid, i) {
 // choosing a song only gets it ready - nothing plays until play is pressed
@@ -567,7 +650,7 @@ async _startTrack(pid, i) {
 const items = (this._cache[pid] && this._cache[pid].items) || [];
 const t = items[i];
 if (!t) return;
-const ok = await this._play(t.id);
+const ok = await this._play(t.id, () => this._startTrack(pid, i));
 const rest = String(pid).startsWith('q:') ? [] : items.slice(i + 1, i + 200).map((x) => x.id);
 if (ok && rest.length) this._svc('music_assistant', 'play_media', { media_id: rest, enqueue: 'add' });
 }
@@ -654,7 +737,7 @@ if (!this._isAdmin()) { this._toast('Only an admin can move Hold', 1500, true); 
 if (!this._hass.states[lockEnt]) { this._toast('Lock helper not found'); return; }
 const on = this._lockOn();
 this._clickSound();
-this._hass.callService('input_boolean', on ? 'turn_off' : 'turn_on', {}, { entity_id: lockEnt })
+this._hass.callService('input_boolean', on ? 'turn_off' : 'turn_on', {}, { entity_id: lockEnt }, false)
 .then(() => this._toast(on ? 'Released – anyone can play' : 'Locked – admins only', 1700, !on))
 .catch((err) => { console.warn('[pip-player] lock', err); this._toast("Couldn't change the lock"); });
 return;
@@ -839,6 +922,27 @@ hd('Find me'),
 txt('Own brand. Not affiliated with, or endorsed by, any other company.'),
 ] };
 }
+if (id === 'busy') {
+const b = this._busyInfo;
+const txt = (label) => ({ label, info: true, txt: true });
+if (!b) return { title: '', items: [{ label: 'OK', act: () => this._busyDone() }] };
+const title = b.prov + ' in use';
+if (!b.other) {
+return { title, items: [
+txt(b.prov + ' is already playing on another speaker. It can only play on one at a time.'),
+txt('Stop it there, then press play again.'),
+{ label: 'OK', act: () => this._busyDone() },
+] };
+}
+const who = this._nameOf(b.other);
+return { title, items: [
+txt(b.prov + ' is already playing on ' + who + '. It can only play on one speaker at a time.'),
+{ label: 'Play here', act: () => this._busyHere() },
+{ label: 'Move it here', act: () => this._busyMove() },
+{ label: 'Cancel', act: () => this._busyDone() },
+txt('Play here stops ' + who + '. Move it here carries on its song on this speaker.'),
+] };
+}
 if (id === 'settings') {
 return { title: 'Settings', items: [
 { label: 'Clicker', val: this._clicker() ? 'On' : 'Off', act: () => this._setPref('clicker', !this._clicker()) },
@@ -933,7 +1037,7 @@ if (i !== sg.i && items[i]) { sg.i = i; sg.t = items[i]; sg.at = Date.now(); }
 this._render();
 }
 _quiet(service, data, e) {
-return this._hass.callService('media_player', service, data || {}, { entity_id: e }).then(() => true).catch(() => false);
+return this._hass.callService('media_player', service, data || {}, { entity_id: e }, false).then(() => true).catch((err) => { this._qErr = err; return false; });
 }
 _waitState(e, test, ms) {
 return new Promise((resolve) => {
@@ -961,7 +1065,11 @@ await this._waitState(e, (s) => s.state !== 'playing', 2500);
 }
 if (canMute) await this._quiet('volume_mute', { is_volume_muted: true }, e);
 const ok = await this._quiet(dir > 0 ? 'media_next_track' : 'media_previous_track', {}, e);
-if (!ok) this._toast("Couldn't do that");
+if (!ok) {
+// the song may already have moved on, so after stopping the other speaker just ask for play
+if (this._inUse(this._qErr)) this._busy(this._qErr, e, () => this._toast('Now press play', 1500));
+else this._toast("Couldn't do that");
+}
 else {
 await this._waitState(e, (s) => s.state === 'playing', 4000);
 await this._quiet('media_pause', {}, e);
