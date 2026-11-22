@@ -4,7 +4,7 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.9.1';
+const VERSION = '1.10.0';
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -36,6 +36,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.10.0','22 Nov 2026',['Options screen in the card editor, so you can set everything without YAML.']],
 ['1.9.1','22 Nov 2026',['Black finish restyled in graphite so it matches the silver player.','Tells you plainly when Music Assistant is not set up yet.']],
 ['1.9.0', '22 Nov 2026', ['Published on GitHub for HACS and the Marketplace.', 'Album art only loads from safe web addresses.']],
 ['1.8.1', '22 Nov 2026', ['Discord on the About page now opens the profile.']],
@@ -268,6 +269,8 @@ this._names = {};
 }
 
 static getStubConfig() { return { finish: 'silver' }; }
+
+static getConfigElement() { return document.createElement(TAG + '-editor'); }
 
 setConfig(config) {
 if (!config || typeof config !== 'object') throw new Error('Pip Player: invalid configuration');
@@ -1549,6 +1552,147 @@ this._setHTML(el.pRep, `${ic(rep === 'one' ? P.repeatOne : P.repeat)}<span>${rep
 [el.pRadio, el.pShuf, el.pRep].forEach((b) => { b.disabled = held || !ok; });
 }
 }
+
+/* ---------- card editor (point-and-click options) ---------- */
+const ED_DEF = { finish: 'silver', fit_screen: false, max_width: 340, splash: true, maker: true, clicker: true, controls: false, exit_button: false, volume_step: 2, seek_step: 5 };
+const ED_OPT = ['default_player', 'exit_path', 'lock_entity', 'storage_key', 'mass_entry_id'];
+const ED_MASS = { integration: 'music_assistant', domain: 'media_player' };
+const ED_SCHEMA = [
+{ name: 'players', selector: { entity: { multiple: true, filter: ED_MASS } } },
+{ name: 'default_player', selector: { entity: { filter: ED_MASS } } },
+{ name: '', type: 'expandable', title: 'Look', icon: 'mdi:palette-outline', schema: [
+{ name: 'finish', selector: { select: { mode: 'dropdown', options: [{ value: 'silver', label: 'Silver' }, { value: 'black', label: 'Black (graphite)' }] } } },
+{ name: '', type: 'grid', schema: [
+{ name: 'fit_screen', selector: { boolean: {} } },
+{ name: 'max_width', selector: { number: { min: 240, max: 900, step: 10, mode: 'box', unit_of_measurement: 'px' } } },
+] },
+{ name: '', type: 'grid', schema: [
+{ name: 'splash', selector: { boolean: {} } },
+{ name: 'maker', selector: { boolean: {} } },
+] },
+] },
+{ name: '', type: 'expandable', title: 'Sound and wheel', icon: 'mdi:volume-high', schema: [
+{ name: '', type: 'grid', schema: [
+{ name: 'clicker', selector: { boolean: {} } },
+{ name: 'controls', selector: { boolean: {} } },
+] },
+{ name: '', type: 'grid', schema: [
+{ name: 'volume_step', selector: { number: { min: 1, max: 10, step: 1, mode: 'box', unit_of_measurement: '%' } } },
+{ name: 'seek_step', selector: { number: { min: 1, max: 30, step: 1, mode: 'box', unit_of_measurement: 's' } } },
+] },
+] },
+{ name: '', type: 'expandable', title: 'Power button', icon: 'mdi:power', schema: [
+{ name: 'exit_button', selector: { boolean: {} } },
+{ name: 'exit_path', selector: { text: {} } },
+] },
+{ name: '', type: 'expandable', title: 'Hold switch lock', icon: 'mdi:lock-outline', schema: [
+{ name: 'lock_entity', selector: { entity: { filter: { domain: 'input_boolean' } } } },
+] },
+{ name: '', type: 'expandable', title: 'Advanced', icon: 'mdi:cog-outline', schema: [
+{ name: 'storage_key', selector: { text: {} } },
+{ name: 'mass_entry_id', selector: { config_entry: { integration: 'music_assistant' } } },
+] },
+];
+const ED_LABEL = {
+players: 'Speakers',
+default_player: 'Start on this speaker',
+finish: 'Finish',
+fit_screen: 'Fit the screen',
+max_width: 'Widest size',
+splash: 'Show the logo when opening',
+maker: 'Show the maker badge',
+clicker: 'Click sounds',
+controls: 'Classic control panel',
+volume_step: 'Volume per wheel click',
+seek_step: 'Seconds per click when scrubbing',
+exit_button: 'Show the power button',
+exit_path: 'Page the power button opens',
+lock_entity: 'Admin lock helper',
+storage_key: 'Settings name',
+mass_entry_id: 'Music Assistant entry',
+};
+const ED_HELP = {
+players: 'Leave empty to use every Music Assistant speaker.',
+finish: 'Each person can still change this in MENU, Settings.',
+fit_screen: 'For a full-screen phone page.',
+clicker: 'Each person can still change this in MENU, Settings.',
+exit_path: 'Leave empty to go back. Example: /lovelace/0',
+lock_entity: 'A toggle helper. Leave empty for a simple lock. With a helper, only admins can move the Hold switch.',
+storage_key: 'Only needed if you use more than one Pip Player.',
+mass_entry_id: 'Only needed if search cannot find Music Assistant.',
+};
+
+class PipPlayerEditor extends HTMLElement {
+setConfig(config) {
+this._config = Object.assign({}, config || {});
+this._render();
+}
+set hass(hass) {
+this._hass = hass;
+this._render();
+}
+connectedCallback() { this._render(); }
+async _loadForm() {
+if (this._loading) return;
+this._loading = true;
+try {
+const helpers = window.loadCardHelpers ? await window.loadCardHelpers() : null;
+const card = helpers ? await helpers.createCardElement({ type: 'entities', entities: [] }) : null;
+if (card && card.constructor && card.constructor.getConfigElement) await card.constructor.getConfigElement();
+} catch (e) { /* ignore */ }
+await Promise.race([customElements.whenDefined('ha-form'), new Promise((r) => setTimeout(r, 4000))]);
+this._loaded = true;
+this._render();
+}
+_data() {
+const c = this._config || {};
+const d = Object.assign({}, ED_DEF, c);
+d.players = Array.isArray(c.players) ? c.players.map((p) => (typeof p === 'string' ? p : p && p.entity)).filter(Boolean) : [];
+return d;
+}
+_render() {
+if (!this._config || !this._hass || !this.isConnected) return;
+if (!customElements.get('ha-form')) {
+if (this._loaded) this.textContent = 'Options need a newer Home Assistant. Use Show code editor instead.';
+else this._loadForm();
+return;
+}
+if (!this._form) {
+this.textContent = '';
+const f = document.createElement('ha-form');
+f.computeLabel = (s) => ED_LABEL[s.name] || s.name;
+f.computeHelper = (s) => ED_HELP[s.name] || '';
+f.addEventListener('value-changed', (ev) => this._changed(ev));
+this.appendChild(f);
+this._form = f;
+}
+this._form.hass = this._hass;
+this._form.schema = ED_SCHEMA;
+this._form.data = this._data();
+}
+_changed(ev) {
+ev.stopPropagation();
+const v = Object.assign({}, (ev.detail && ev.detail.value) || {});
+const old = this._config || {};
+const out = Object.assign({}, old);
+const names = {};
+if (Array.isArray(old.players)) old.players.forEach((p) => { if (p && typeof p === 'object' && p.entity && p.name) names[p.entity] = p.name; });
+const pl = Array.isArray(v.players) ? v.players.filter(Boolean) : [];
+if (pl.length) out.players = pl.map((e) => (names[e] ? { entity: e, name: names[e] } : e));
+else delete out.players;
+Object.keys(v).forEach((k) => {
+if (k === 'players') return;
+const val = v[k];
+if (val === undefined || val === null || val === '' || (k in ED_DEF && val === ED_DEF[k])) delete out[k];
+else out[k] = val;
+});
+ED_OPT.forEach((k) => { if (!(k in v) || v[k] === '' || v[k] == null) delete out[k]; });
+this._config = out;
+this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: out }, bubbles: true, composed: true }));
+}
+}
+
+if (!customElements.get(TAG + '-editor')) customElements.define(TAG + '-editor', PipPlayerEditor);
 
 customElements.define(TAG, PipPlayerCard);
 window.customCards = window.customCards || [];

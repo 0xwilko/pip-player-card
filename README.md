@@ -20,6 +20,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 - Hold switch: on its own it locks the player, or point it at a helper to make it an admin lock, so only chosen people can take over the music.
 - Full-screen phone mode that fits the screen exactly, with a power button to leave.
 - Click sounds (and a light tap on iPhone with iOS 18 or later), saved per person in Home Assistant.
+- Point-and-click options screen when you edit the card, so no YAML is needed.
 - Settings menu with finish, clicker, an optional classic control panel, an add a Bluetooth speaker helper, About and the version history.
 
 ## What you need
@@ -51,11 +52,13 @@ Manual:
 
 ## Quick start
 
+Edit your dashboard, press Add card and search for Pip Player. That's all you need: the card finds your Music Assistant speakers by itself.
+
+Every option can be changed in the card's own options screen, so YAML is optional. In YAML the card is simply:
+
 ```yaml
 type: custom:pip-player-card
 ```
-
-That's all you need. The card finds your Music Assistant players by itself.
 
 ## Full-screen phone page (recommended)
 
@@ -83,6 +86,8 @@ kiosk_mode:
 The power button at the top left takes you back.
 
 ## Options
+
+All of these can be set in the card's options screen, except `admin_ids`, which is YAML only.
 
 | Option | Default | What it does |
 | --- | --- | --- |
