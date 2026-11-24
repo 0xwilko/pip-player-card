@@ -4,7 +4,7 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.10.2';
+const VERSION = '1.10.3';
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -37,6 +37,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.10.3','24 Nov 2026',['Now in the HACS default store.','Made it clear the Hold switch locks this card, not the speakers.']],
 ['1.10.2','22 Nov 2026',['A mute symbol shows at the top of the screen when the speaker is muted.','Turn mute on or off in MENU, or just turn the volume to bring the sound back.']],
 ['1.10.1','22 Nov 2026',['If Spotify is already playing on another speaker, Pip Player says which one and lets you play here or move the music here.','Home Assistant’s grey error bar no longer pops up over the player.']],
 ['1.10.0','22 Nov 2026',['Options screen in the card editor, so you can set everything without YAML.']],
@@ -1743,7 +1744,7 @@ finish: 'Each person can still change this in MENU, Settings.',
 fit_screen: 'For a full-screen phone page.',
 clicker: 'Each person can still change this in MENU, Settings.',
 exit_path: 'Leave empty to go back. Example: /lovelace/0',
-lock_entity: 'A toggle helper. Leave empty for a simple lock. With a helper, only admins can move the Hold switch.',
+lock_entity: 'A toggle helper. Leave empty for a simple lock. With a helper, only admins can move the Hold switch. It locks this card, not the speakers.',
 storage_key: 'Only needed if you use more than one Pip Player.',
 mass_entry_id: 'Only needed if search cannot find Music Assistant.',
 };

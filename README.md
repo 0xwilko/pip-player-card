@@ -19,7 +19,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 - Search your music and Spotify (or any other Music Assistant provider) by song, artist, album or playlist, plus search inside any playlist. Your phone keyboard pops up, and its microphone key lets you speak the search.
 - Picking or skipping a song gets it ready without playing it. Nothing starts until you press play.
 - If Spotify (or another service that only plays on one speaker at a time) is already playing elsewhere, Pip Player tells you which speaker has it and lets you play here or move that music here.
-- Hold switch: on its own it locks the player, or point it at a helper to make it an admin lock, so only chosen people can take over the music.
+- Hold switch: on its own it locks this card, or point it at a helper to make it an admin lock on this card, so only chosen people can take over the music from Pip Player. It locks the card, not the speakers.
 - Full-screen phone mode that fits the screen exactly, with a power button to leave.
 - Click sounds (and a light tap on iPhone with iOS 18 or later), saved per person in Home Assistant.
 - Point-and-click options screen when you edit the card, so no YAML is needed.
@@ -44,7 +44,7 @@ Home Assistant 2026.11 and newer (Marketplace):
 
 Home Assistant 2026.10 and older (HACS):
 
-1. Open HACS and search for Pip Player, or use the button above to add it as a custom repository (type Dashboard).
+1. Open HACS and search for Pip Player (it is in the HACS default store), or use the button above.
 2. Download it and reload your browser.
 
 Manual:
@@ -99,7 +99,7 @@ All of these can be set in the card's options screen, except `admin_ids`, which 
 | `max_width` | `340` | Widest the player will grow, in pixels. |
 | `exit_button` | `false` | Shows the power button that leaves the page. |
 | `exit_path` | back | Page to open when the power button is pressed, for example `/lovelace/0`. |
-| `lock_entity` | none | An `input_boolean` used by the Hold switch as an admin lock. |
+| `lock_entity` | none | An `input_boolean` used by the Hold switch as an admin lock on this card. |
 | `admin_ids` | Home Assistant admins | User IDs allowed to move the Hold switch when `lock_entity` is set. |
 | `finish` | `silver` | `silver` or `black`. Each person can change it in Settings. |
 | `clicker` | `true` | Click sounds. Each person can turn them off in Settings. |
@@ -128,7 +128,9 @@ A crossed-out speaker at the top of the screen means the speaker is muted. Turn 
 2. Add `lock_entity: input_boolean.music_admin_lock` to the card.
 3. Optional: add `admin_ids` with the user IDs who may use it (Settings → People → Users). Without it, Home Assistant admins can use it.
 
-When the Hold switch is on, everyone else can still browse and search, but only the admins can play, skip or change the volume.
+When the Hold switch is on, everyone else can still browse and search, but only the admins can play, skip or change the volume from this card.
+
+The Hold switch locks this card, not the speakers. Other cards, apps, automations and service calls can still control the same speakers.
 
 ## Bluetooth speakers
 
