@@ -4,7 +4,9 @@ A retro click-wheel music player card for Home Assistant and Music Assistant.
 
 Spin the wheel to scroll and change the volume, press the buttons to skip and play, and pick your music from menus, just like the classic pocket music players of the 2000s.
 
-> **Before you start: Pip Player needs Music Assistant.** You need the Music Assistant app (the server) and the Music Assistant integration in Home Assistant, with at least one speaker added. Pip Player plays everything through Music Assistant, so it won't work without it. [Set up Music Assistant](https://www.music-assistant.io/get-started/)
+**New in 1.11: your phone is a speaker too.** Choose *This device* and the music plays right there in your hand, through the phone's own speaker, your headphones or your AirPods. No speakers needed, at home or away. [How it works](#this-device-play-on-your-phone)
+
+> **Before you start: Pip Player needs Music Assistant.** You need the Music Assistant app (the server) and the Music Assistant integration in Home Assistant. Pip Player plays everything through Music Assistant, so it won't work without it. [Set up Music Assistant](https://www.music-assistant.io/get-started/)
 
 ![Pip Player](images/pip-player.jpg)
 
@@ -12,6 +14,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 
 ## Features
 
+- **This device:** play on the phone, tablet or computer you're holding, through its speaker, wired headphones or Bluetooth earbuds. Works on home Wi-Fi and on mobile data, and carries on by itself when you walk out of Wi-Fi range or swap headphones.
 - A silver (or black) player body with a working click wheel: turn it to scroll menus or change the volume, press MENU, ⏮, ⏭, ▶❚❚ and the centre button.
 - Now Playing screen with album art, title, artist, album and a progress bar. Tap the screen to play or pause.
 - Playlists, radio stations and speakers, all from Music Assistant.
@@ -28,7 +31,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 ## What you need
 
 - Home Assistant 2025.2 or newer.
-- **Music Assistant (required):** the [Music Assistant app](https://www.music-assistant.io/get-started/) (the server) and the [Music Assistant integration](https://www.home-assistant.io/integrations/music_assistant/), with at least one speaker added. Set this up first.
+- **Music Assistant (required):** the [Music Assistant app](https://www.music-assistant.io/get-started/) (the server) and the [Music Assistant integration](https://www.home-assistant.io/integrations/music_assistant/). Set this up first. With the Music Assistant app on Home Assistant OS you can start straight away on This device; otherwise add at least one speaker in Music Assistant.
 
 If Music Assistant isn't set up, Pip Player shows a message saying so, with a link to the setup guide.
 
@@ -62,6 +65,23 @@ Every option can be changed in the card's own options screen, so YAML is optiona
 type: custom:pip-player-card
 ```
 
+## This device: play on your phone
+
+No speaker nearby? Let your phone be the speaker. Press MENU › Speakers › This device, pick some music and press play. The sound comes out of whatever the phone is using: its own speaker, wired headphones or Bluetooth earbuds such as AirPods. It works the same on a tablet or a computer.
+
+- **Ready out of the box.** If the card has no starting speaker set, Pip Player starts on This device until you pick another, so it plays even with no speakers set up.
+- **At home and away.** It connects through Home Assistant itself, the same way the Home Assistant app does. It works on your home Wi-Fi and out on mobile data (wherever your Home Assistant app works), with no ports to open and no extra addresses to set up.
+- **Keeps going.** Turn the Wi-Fi off or walk out of range and it reconnects on its own and carries on.
+- **Swap headphones freely.** Put your earbuds in or take them out and it pauses for a moment while the phone switches over, then carries on through the new output.
+- **A proper speaker.** It shows up in Home Assistant and Music Assistant under your name and device, for example *Tim's iPhone*, while Pip Player is open.
+
+Good to know:
+
+- Keep Pip Player open on the screen. Phones stop web pages playing in the background, so locking the phone or switching to another app will usually stop the music.
+- On mobile data it uses about 45 MB an hour.
+- It needs the Music Assistant app running on Home Assistant OS (the usual set-up). If your Music Assistant server runs somewhere else, for example in Docker, set `sendspin_url` to its Sendspin address, such as `ws://192.168.1.20:8927/sendspin`. That works on your home network only.
+- To make it the starting speaker even when the card lists others, set `default_player: this_device`. To hide it, turn off *Offer This device as a speaker* in the card options.
+
 ## Full-screen phone page (recommended)
 
 Make a new dashboard, add a view of type Panel, and put the card in it:
@@ -89,12 +109,14 @@ The power button at the top left takes you back.
 
 ## Options
 
-All of these can be set in the card's options screen, except `admin_ids`, which is YAML only.
+All of these can be set in the card's options screen, except `admin_ids` and `debug`, which are YAML only.
 
 | Option | Default | What it does |
 | --- | --- | --- |
 | `players` | all Music Assistant players | List of speakers, as entity IDs or `{entity, name}` pairs. |
-| `default_player` | first available | Speaker to start on. |
+| `default_player` | This device, then first available | Speaker to start on. Use `this_device` for the phone or computer showing the card. |
+| `this_device` | `true` | Offers This device as a speaker. Set to `false` to hide it. |
+| `sendspin_url` | none | Only if Music Assistant is not a Home Assistant app: its Sendspin address, for example `ws://192.168.1.20:8927/sendspin` (home network only). |
 | `fit_screen` | `false` | Sizes the player to fill the screen with no scrolling. |
 | `max_width` | `340` | Widest the player will grow, in pixels. |
 | `exit_button` | `false` | Shows the power button that leaves the page. |
@@ -110,6 +132,7 @@ All of these can be set in the card's options screen, except `admin_ids`, which 
 | `storage_key` | none | Keeps settings separate when you use more than one Pip Player. |
 | `maker` | `true` | Set to `false` to hide the maker badge at the top. |
 | `mass_entry_id` | found automatically | Music Assistant config entry ID, only needed if search can't find it. |
+| `debug` | `false` | YAML only. Writes what This device is doing to the Home Assistant log (Settings → System → Logs), handy when reporting a problem. |
 
 ## Using the wheel
 
@@ -143,7 +166,7 @@ Use only one of them for a given speaker. Admins can open either app from Pip Pl
 
 ## Privacy and safety
 
-- The card only talks to your own Home Assistant. It sends nothing anywhere else.
+- The card only talks to your own Home Assistant. It sends nothing anywhere else. This device gets its music from your own Music Assistant, through your own Home Assistant connection.
 - Settings are saved against each person's Home Assistant login.
 - The links on the About page and the maker badge just open the maker's public pages in your browser.
 
@@ -162,3 +185,5 @@ Pip Player is its own brand. It is not affiliated with, or endorsed by, any othe
 ## Licence
 
 [MIT](LICENSE)
+
+The helper file for This device, `dist/pip-player-sendspin.js`, includes [Sendspin JS](https://github.com/Sendspin/sendspin-js) (Apache-2.0), [@noble](https://paulmillr.com/noble/) (MIT) and [opus-encdec](https://github.com/mmig/opus-encdec) (MIT). Their licence notices are at the top of that file.

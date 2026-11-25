@@ -4,7 +4,8 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.10.3';
+const VERSION = '1.11.0';
+const BUILD = ''; // shown beside the version while testing; empty for a release
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -37,6 +38,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.11.0','25 Nov 2026',['New speaker: This device. Plays on the phone, tablet or computer you are using, through its own speaker, headphones or Bluetooth earbuds.','Works at home and away, through Home Assistant. Nothing extra to set up.','Used automatically until you pick another speaker, so Pip Player works even with no speakers set up.','Carries on by itself when the Wi-Fi drops or the phone moves to mobile data.','Headphones in or out? It pauses for a moment while your phone switches over, then carries on.']],
 ['1.10.3','24 Nov 2026',['Now in the HACS default store.','Made it clear the Hold switch locks this card, not the speakers.']],
 ['1.10.2','22 Nov 2026',['A mute symbol shows at the top of the screen when the speaker is muted.','Turn mute on or off in MENU, or just turn the volume to bring the sound back.']],
 ['1.10.1','22 Nov 2026',['If Spotify is already playing on another speaker, Pip Player says which one and lets you play here or move the music here.','Home Assistant’s grey error bar no longer pops up over the player.']],
@@ -66,6 +68,477 @@ return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart
 };
 const junk = (t) => !t || /^(no desc|unknown|none|-)$/i.test(String(t).trim());
 const isRadio = (a) => /:\/\/radio\/|radiobrowser/i.test(a.media_content_id || '');
+
+/* ---------- This device ----------
+* Plays the music on the phone, tablet or computer that is showing Pip Player, using Music
+* Assistant's own Sendspin audio (the way Music Assistant's web player works). The sound goes
+* to whatever the device is using: its speaker, wired headphones or Bluetooth earbuds.
+* The connection runs through Home Assistant itself (the route the Music Assistant page uses
+* inside the HA app), so it works at home and away with no extra address, token or port.
+* One connection per browser, shared by every Pip Player card on the page. It only starts
+* when someone uses Pip Player with This device chosen, so it never adds speakers on its own. */
+const DEV_ID = 'this-device';
+const DEV_SLUGS = ['d5369777_music_assistant', 'd5369777_music_assistant_beta'];
+const DEV = {
+st: 'off', err: '', player: null, entity: null, hass: null, cfg: {}, cards: new Set(), session: null, slug: null, base: null, prep: null, lib: null, timer: null, finding: false,
+// sound and connection watch: el = our <audio> (phones), mon = 500 ms check, wasOn = link up last check,
+// dropAt/wasPlaying = when the link dropped and whether music was playing, lat = sound output delay,
+// hold = paused while a new sound output (headphones, AirPods…) gets ready, ctxRun = sound engine running last check
+el: null, ctx: null, mon: null, wasOn: false, wasStream: false, syncAt: 0, dropAt: 0, wasPlaying: false, nudgeAt: 0, lat: null, latNew: null, hold: null, ctxRun: false, mode: null, hooked: false, conns: new WeakSet(), logq: [], logBusy: false,
+};
+// phones and tablets play through an <audio> element, as Music Assistant's web player does there
+const DEV_MOBILE = /Android|iPad|iPhone|iPod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const devLs = (k, v) => {
+try {
+const key = 'pip-player-device:' + k;
+if (v === undefined) { const r = localStorage.getItem(key); return r === null ? undefined : JSON.parse(r); }
+localStorage.setItem(key, JSON.stringify(v));
+} catch (e) { /* storage unavailable */ }
+return undefined;
+};
+// Sendspin keeps this device's identity in storage. A namespace of its own means it never shares
+// an id with Music Assistant's web player, which runs on the same Home Assistant address.
+const devStorage = {
+getItem: (k) => { try { return localStorage.getItem('pip-player-sendspin:' + k); } catch (e) { return null; } },
+setItem: (k, v) => { try { localStorage.setItem('pip-player-sendspin:' + k, v); } catch (e) { /* ignore */ } },
+};
+const devKind = () => {
+const ua = navigator.userAgent || '';
+if (/iPhone|iPod/.test(ua)) return 'iPhone';
+if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return 'iPad';
+if (/Android/.test(ua)) return /Mobile/.test(ua) ? 'Android phone' : 'Android tablet';
+if (/Macintosh/.test(ua)) return 'Mac';
+if (/CrOS/.test(ua)) return 'Chromebook';
+if (/Windows/.test(ua)) return 'PC';
+return 'browser';
+};
+// the speaker's name in Music Assistant and Home Assistant, e.g. "Tim's iPhone"
+const devName = () => {
+const saved = devLs('name');
+if (saved) return saved;
+const u = DEV.hass && DEV.hass.user && DEV.hass.user.name ? String(DEV.hass.user.name).trim().split(/\s+/)[0] : '';
+const base = (u ? u + '’s ' : 'My ') + devKind();
+// a second browser on the same kind of device gets "… 2", so each one is its own speaker
+const used = new Set(Object.values((DEV.hass && DEV.hass.states) || {}).map((x) => x.attributes && x.attributes.friendly_name));
+let n = base;
+for (let i = 2; used.has(n) && i < 20; i++) n = base + ' ' + i;
+devLs('name', n);
+return n;
+};
+const devCan = (h, cfg) => !!h && cfg.this_device !== false && (!!cfg.sendspin_url || ((h.config && h.config.components) || []).includes('hassio'));
+const devSet = (st, err) => {
+DEV.st = st;
+DEV.err = err || '';
+DEV.cards.forEach((c) => { try { c._render(); } catch (e) { /* ignore */ } });
+};
+const devMsg = (e) => {
+const m = String((e && e.message) || e || '');
+if (/not found|unknown/i.test(m)) return 'Music Assistant app not found';
+if (/helper/i.test(m)) return 'Update Pip Player again';
+return 'Couldn’t connect';
+};
+// the folder this card was loaded from, so its Sendspin helper file loads from the same place
+const devBase = () => {
+const find = (u) => (/\/pip-player-card\.js$/.test(u) ? u.replace(/[^/]*$/, '') : '');
+let b = '';
+try { (performance.getEntriesByType('resource') || []).some((r) => (b = find(String(r.name).split('?')[0])) !== ''); } catch (e) { /* ignore */ }
+if (!b) { try { [...document.querySelectorAll('script[src]')].some((s) => (b = find(String(s.src).split('?')[0])) !== ''); } catch (e) { /* ignore */ } }
+return b || '/hacsfiles/pip-player-card/';
+};
+const devLib = () => {
+if (window.PipSendspin) return Promise.resolve(window.PipSendspin);
+if (DEV.lib) return DEV.lib;
+DEV.lib = new Promise((resolve, reject) => {
+const s = document.createElement('script');
+s.src = devBase() + 'pip-player-sendspin.js?v=' + VERSION;
+s.async = true;
+s.onload = () => (window.PipSendspin ? resolve(window.PipSendspin) : reject(new Error('Sendspin helper did not load')));
+s.onerror = () => reject(new Error('Sendspin helper file is missing'));
+document.head.appendChild(s);
+}).catch((e) => { DEV.lib = null; throw e; });
+return DEV.lib;
+};
+// Home Assistant's own way into an app (Ingress), as its app panels use it
+const devWS = (msg) => DEV.hass.callWS(msg);
+const devInfo = async () => {
+const slugs = DEV.cfg.ma_app_slug ? [String(DEV.cfg.ma_app_slug)] : DEV_SLUGS;
+for (const slug of slugs) {
+let info = null;
+try { info = await devWS({ type: 'supervisor/ingress/info', slug }); } catch (e) {
+try { info = await devWS({ type: 'supervisor/api', endpoint: '/addons/' + slug + '/info', method: 'get' }); } catch (e2) { info = null; }
+}
+if (info && info.ingress_url) { DEV.slug = slug; return info.ingress_url; }
+}
+throw new Error('Music Assistant app not found');
+};
+const devSession = async () => {
+let r;
+try { r = await devWS({ type: 'supervisor/ingress/session', slug: DEV.slug }); } catch (e) {
+r = await devWS({ type: 'supervisor/api', endpoint: '/ingress/session', method: 'post' });
+}
+DEV.session = r && r.session;
+if (!DEV.session) throw new Error('No ingress session');
+document.cookie = 'ingress_session=' + DEV.session + ';path=/api/hassio_ingress/;SameSite=Strict' + (location.protocol === 'https:' ? ';Secure' : '');
+return DEV.session;
+};
+// keep the Ingress session alive, or make a new one if it has run out (phone asleep, etc.)
+const devKeep = async () => {
+if (DEV.cfg.sendspin_url || !DEV.slug) return;
+if (!DEV.session) { await devSession(); return; }
+try { await devWS({ type: 'supervisor/ingress/validate_session', session: DEV.session }); } catch (e) {
+try { await devWS({ type: 'supervisor/api', endpoint: '/ingress/validate_session', method: 'post', data: { session: DEV.session } }); } catch (e2) { await devSession(); }
+}
+};
+const devPrepare = () => {
+if (DEV.prep) return DEV.prep;
+DEV.prep = (async () => {
+const lib = await devLib();
+if (DEV.cfg.sendspin_url) DEV.base = String(DEV.cfg.sendspin_url);
+else { const iu = await devInfo(); await devSession(); DEV.base = location.origin + iu; }
+return lib;
+})().catch((e) => { DEV.prep = null; DEV.failAt = Date.now(); throw e; });
+return DEV.prep;
+};
+// the Home Assistant speaker (media_player) Music Assistant makes for this device
+const devFind = () => {
+if (DEV.finding) return;
+DEV.finding = true;
+const name = devName();
+const t0 = Date.now();
+const look = () => {
+const h = DEV.hass;
+const hit = h && Object.values(h.entities || {}).find((e) => {
+if (e.platform !== 'music_assistant' || !e.entity_id.startsWith('media_player.')) return false;
+const d = h.devices && h.devices[e.device_id];
+const st = h.states[e.entity_id];
+return (d && (d.name_by_user || d.name) === name) || (st && st.attributes.friendly_name === name);
+});
+if (hit) {
+DEV.finding = false;
+DEV.entity = hit.entity_id;
+devLs('entity', hit.entity_id);
+devSet(DEV.st, DEV.err);
+return;
+}
+if (Date.now() - t0 < 30000 && DEV.player) setTimeout(look, 600);
+else { DEV.finding = false; if (!DEV.entity) devSet('error', 'Speaker not found in Home Assistant'); }
+};
+look();
+};
+// What happened, for fault finding: always to the browser console, and to the Home Assistant log
+// (Settings › System › Logs, "pip_player") when the card has debug: true.
+const devLog = (m) => {
+console.info('[pip-player] ' + m);
+if (!DEV.cfg || !DEV.cfg.debug) return;
+const t = new Date();
+DEV.logq.push(t.toTimeString().slice(0, 8) + '.' + String(t.getMilliseconds()).padStart(3, '0') + ' ' + m);
+if (DEV.logq.length > 300) DEV.logq.shift();
+devFlush();
+};
+// Sent straight over Home Assistant's connection (not callService), so a failure never pops up
+// a message on screen; while the connection is down the lines wait and go once it is back.
+const devWS2 = (msg) => {
+const c = DEV.hass && DEV.hass.connection;
+if (!c || c.connected === false) return Promise.reject(new Error('connection lost'));
+return DEV.hass.callWS(msg);
+};
+const devFlush = () => {
+if (DEV.logBusy || !DEV.logq.length || !DEV.hass) return;
+DEV.logBusy = true;
+const batch = DEV.logq.slice(0, 40);
+devWS2({ type: 'call_service', domain: 'system_log', service: 'write', service_data: { message: 'This device: ' + batch.join(' | '), logger: 'pip_player.this_device', level: 'warning' } })
+.then(() => { DEV.logq.splice(0, batch.length); DEV.logBusy = false; devFlush(); })
+.catch(() => { DEV.logBusy = false; setTimeout(devFlush, 5000); });
+};
+const devCall = (service) => {
+if (!DEV.entity || !DEV.hass) return;
+devLog(service);
+devWS2({ type: 'call_service', domain: 'media_player', service, target: { entity_id: DEV.entity } })
+.catch((e) => devLog(service + ' failed: ' + ((e && e.message) || e)));
+};
+// After a dropped connection the music sometimes comes back out of step and keeps jumping to
+// catch up (seen after Wi-Fi came back on). A fresh start puts it right, so do that: pause
+// and play again, as you would by hand. At most once every 20 seconds.
+const devWatch = (p) => {
+if (!p.isPlaying || DEV.hold) { DEV.bad = 0; DEV.rs = null; return; }
+let s;
+try { s = p.syncInfo || {}; } catch (e) { return; }
+const err = Math.abs(Number(s.syncErrorMs) || 0);
+const rs = Number(s.resyncCount) || 0;
+if (DEV.rs === null || rs < DEV.rs) DEV.rs = rs;
+DEV.rsLog = (DEV.rsLog || []).filter((x) => Date.now() - x.t < 5000);
+DEV.rsLog.push({ t: Date.now(), rs });
+const jumps = rs - DEV.rsLog[0].rs;
+DEV.bad = err > 800 ? (DEV.bad || 0) + 1 : 0;
+if ((DEV.bad >= 4 || jumps >= 3) && Date.now() - (DEV.fixAt || 0) > 20000) {
+DEV.fixAt = Date.now();
+DEV.bad = 0;
+DEV.rsLog = [];
+devHold('out of step by ' + Math.round(err) + ' ms, ' + jumps + ' jumps');
+}
+};
+// the browser's sound engine inside the Sendspin player (null until the first tap)
+const devCtx = () => (DEV.player && DEV.player.scheduler && DEV.player.scheduler.audioContext) || null;
+// our own <audio> element on phones, so Pip Player can restart it from a tap and hear when the phone stops it
+const devEl = () => {
+if (!DEV_MOBILE) return undefined;
+if (DEV.el) return DEV.el;
+const a = document.createElement('audio');
+a.setAttribute('playsinline', '');
+a.setAttribute('aria-hidden', 'true');
+a.style.display = 'none';
+(document.body || document.documentElement).appendChild(a);
+a.addEventListener('pause', () => devPaused());
+a.addEventListener('playing', () => devLog('sound on'));
+DEV.el = a;
+return a;
+};
+// Every tap on Pip Player (phones only allow sound from a tap): restart the sound if the phone
+// stopped it - after a dropped connection, a call, Siri or headphones coming out.
+const devWake = () => {
+const p = DEV.player;
+if (!p) return;
+if (!DEV.hold && DEV.el && DEV.el.muted) devMute(false);
+try { p.unlock().catch(() => { /* next tap */ }); } catch (e) { /* ignore */ }
+const c = devCtx();
+if (c && c.state !== 'running' && c.state !== 'closed') { devLog('waking sound (' + c.state + ')'); c.resume().catch(() => { /* next tap */ }); }
+const a = DEV.el;
+if (a && a.paused && (a.srcObject || a.src)) a.play().catch((e) => devLog('phone refused sound: ' + (e && e.name)));
+};
+// The sound output changed while music was playing: headphones or earbuds in or out, AirPods
+// connecting, a call. The phone stops its sound engine (or the sound) for the switch, and music
+// carried on through that stutters. So: pause, wait for the new output to be ready, carry on.
+const devHold = (why) => {
+const p = DEV.player;
+if (DEV.hold || !p || !p.isPlaying) return;
+devLog('sound output changed (' + why + '), pausing');
+DEV.hold = { at: Date.now(), last: Date.now(), tried: 0 };
+devMute(true);
+devCall('media_pause');
+};
+// silence the phone straight away while it switches over, so the switch itself isn't heard
+const devMute = (on) => {
+DEV.unmute = false;
+if (DEV.el && DEV.el.muted !== on) { DEV.el.muted = on; devLog(on ? 'muted' : 'unmuted'); }
+};
+// the phone stopped our <audio> element itself
+const devPaused = () => {
+const p = DEV.player;
+const playing = !!(p && p.isConnected && p.isPlaying);
+devLog('sound paused' + (playing ? ' by the phone' : ''));
+if (playing) devHold('the phone stopped the sound');
+};
+const devRoute = (c, p) => {
+if (!c) return;
+const run = c.state === 'running';
+if (!run && DEV.ctxRun && p.isPlaying) devHold('sound engine ' + c.state);
+DEV.ctxRun = run;
+const lat = (Number(c.baseLatency) || 0) + (Number(c.outputLatency) || 0);
+const h = DEV.hold;
+if (h) {
+const now = Date.now();
+const a = DEV.el;
+const ready = run && !(a && a.paused && (a.srcObject || a.src));
+if (!ready) {
+h.last = now;
+// switch the sound back on (every quarter second): the phone allows it after the first tap
+if (now - h.tried > 250) {
+h.tried = now;
+if (!run && c.state !== 'closed') c.resume().catch(() => { /* next try */ });
+if (a && a.paused && (a.srcObject || a.src)) a.play().catch(() => { /* next try */ });
+}
+if (now - h.at > 10000) {
+DEV.hold = null;
+devLog('needs a tap');
+devMute(false);
+DEV.cards.forEach((cd) => { try { cd._toast('Press play to carry on', 4000); } catch (e) { /* ignore */ } });
+}
+} else if (DEV.lat !== null && Math.abs(lat - DEV.lat) > 0.01) {
+h.last = now;
+h.slow = true;
+} else if (now - h.last > (h.slow ? 1500 : 400)) {
+DEV.hold = null;
+devLog('new output ready (' + Math.round(lat * 1000) + ' ms), carrying on');
+DEV.unmute = Date.now();
+devCall('media_play');
+}
+DEV.lat = run ? lat : DEV.lat;
+DEV.latNew = null;
+return;
+}
+if (!run || !DEV_MOBILE) return;
+// phones: a big change in the sound delay with the engine still running (Bluetooth earbuds, a car…)
+if (DEV.lat === null || Math.abs(lat - DEV.lat) <= 0.05) { DEV.lat = lat; DEV.latNew = null; return; }
+// two readings in a row, so a one-off blip is ignored
+if (DEV.latNew === null || Math.abs(lat - DEV.latNew) > 0.02) { DEV.latNew = lat; return; }
+const was = DEV.lat;
+DEV.lat = lat;
+DEV.latNew = null;
+devHold('delay ' + Math.round(was * 1000) + ' > ' + Math.round(lat * 1000) + ' ms');
+if (DEV.hold) DEV.hold.slow = true;
+};
+// Timing: exact multi-room sync only when this device is grouped with other speakers. On its own
+// it plays without speeding up or slowing down the music (as Music Assistant's web player does).
+const devModeNow = () => {
+const st = DEV.entity && DEV.hass && DEV.hass.states[DEV.entity];
+const gm = st && st.attributes && st.attributes.group_members;
+return Array.isArray(gm) && gm.length > 1 ? 'sync' : 'quality-local';
+};
+// The link dropped (Wi-Fi off, walked out of range…): remember whether music was playing,
+// so it carries on by itself when the link is back.
+const devDropped = () => {
+const st = DEV.entity && DEV.hass && DEV.hass.states[DEV.entity];
+DEV.dropAt = Date.now();
+DEV.wasPlaying = !!((st && st.state === 'playing') || (DEV.player && DEV.player.isPlaying));
+devLog('link down' + (DEV.wasPlaying ? ' while playing' : ''));
+};
+const devBack = () => {
+devSet('on');
+if (!DEV.entity && !DEV.finding) devFind();
+const want = DEV.wasPlaying && Date.now() - DEV.dropAt < 180000;
+DEV.wasPlaying = false;
+if (!want) return;
+const t0 = Date.now();
+// Music Assistant usually carries on by itself once the link is back. Only ask it to play
+// when it hasn't after a few seconds: asking while it is already restarting starts the
+// music twice over, which sounds like a washing machine.
+const go = () => {
+const p = DEV.player;
+if (p && p.isPlaying) { devLog('music carried on by itself'); devSound(); return; }
+const st = DEV.entity && DEV.hass && DEV.hass.states[DEV.entity];
+const waited = Date.now() - t0;
+if (waited < 4000 || !st || st.state === 'unavailable') { if (waited < 15000) setTimeout(go, 500); return; }
+devLog('carrying on after the drop');
+devSound();
+devCall('media_play');
+};
+setTimeout(go, 500);
+};
+// make sure the phone's sound is on (it may have been stopped while the link was down)
+const devSound = () => {
+const a = DEV.el;
+if (!a || !a.paused || !(a.srcObject || a.src)) return;
+a.play().catch(() => { devLog('needs a tap'); DEV.cards.forEach((cd) => { try { cd._toast('Tap Pip Player to carry on', 4000); } catch (e) { /* ignore */ } }); });
+};
+// Network back (or the app back on screen): reconnect now instead of waiting for the next retry.
+const devNudge = (why) => {
+const p = DEV.player;
+// only after a drop, and never on top of a try that is still connecting (slow mobile data)
+if (!p || p.isConnected || !DEV.dropAt || Date.now() - DEV.nudgeAt < 4000) return;
+const ws = p.core && p.core.wsManager;
+if (ws && typeof ws.getReadyState === 'function' && ws.getReadyState() === 0) return;
+DEV.nudgeAt = Date.now();
+devLog('reconnecting now (' + why + ')');
+devKeep().catch(() => { /* a new session comes with the next try */ })
+.then(() => (DEV.player === p && !p.isConnected ? p.connect().then(() => devBack()) : null))
+.catch((e) => devLog('reconnect failed: ' + ((e && e.message) || e)));
+};
+const devTick = () => {
+const p = DEV.player;
+if (!p) return;
+const on = p.isConnected;
+if (on !== DEV.wasOn) { DEV.wasOn = on; if (on) devLog('link up'); else devDropped(); }
+const c = devCtx();
+if (c && c !== DEV.ctx) {
+DEV.ctx = c;
+devLog('sound engine ' + c.state + ', ' + c.sampleRate + ' Hz');
+c.addEventListener('statechange', () => { devLog('sound engine ' + c.state); if (DEV.player && devCtx() === c) devRoute(c, DEV.player); });
+}
+devRoute(c, p);
+devWatch(p);
+// fault finding: when the music starts and stops, and how well it keeps time while playing
+if (p.isPlaying !== DEV.wasStream) { DEV.wasStream = p.isPlaying; devLog(p.isPlaying ? 'music arriving' : 'music stopped'); DEV.syncAt = Date.now(); }
+// sound back on once the fresh music has started (or after 8 s whatever happens)
+if (DEV.unmute && !DEV.hold && ((p.isPlaying && Date.now() - DEV.syncAt > 150) || Date.now() - DEV.unmute > 8000)) devMute(false);
+if (DEV.cfg.debug && p.isPlaying && Date.now() - (DEV.syncAt || 0) > 5000) {
+DEV.syncAt = Date.now();
+try {
+const s = p.syncInfo || {};
+const tf = p.scheduler && p.scheduler.timeFilter;
+devLog('timing: error ' + Math.round(s.syncErrorMs || 0) + ' ms, clock ±' + (tf ? Math.round(tf.error / 1000) : '?') + ' ms, ' + (s.correctionMethod || 'none') + ' x' + (s.playbackRate || 1) + ', resyncs ' + (s.resyncCount || 0) + ', output ' + Math.round(s.outputLatencyMs || 0) + ' ms, ' + (s.correctionMode || DEV.mode) + (DEV.el ? ', sound ' + (DEV.el.paused ? 'paused' : 'on') : '') + (c ? ', engine ' + c.state : ''));
+} catch (e) { /* ignore */ }
+}
+const mode = devModeNow();
+if (mode !== DEV.mode) { DEV.mode = mode; try { p.setCorrectionMode(mode); } catch (e) { /* ignore */ } devLog('timing ' + mode); }
+};
+const devHooks = () => {
+if (DEV.hooked) return;
+DEV.hooked = true;
+window.addEventListener('online', () => { if (DEV.player) { devLog('network back'); devNudge('network back'); } });
+window.addEventListener('offline', () => { if (DEV.player) devLog('network lost'); });
+document.addEventListener('visibilitychange', () => {
+if (!DEV.player) return;
+devLog('screen ' + document.visibilityState);
+if (document.visibilityState === 'visible') devNudge('back on screen');
+});
+};
+// Home Assistant's own connection coming back is the surest sign the network is back
+const devConn = (h) => {
+const c = h && h.connection;
+if (!c || typeof c.addEventListener !== 'function' || DEV.conns.has(c)) return;
+DEV.conns.add(c);
+c.addEventListener('ready', () => { if (DEV.player) { devLog('Home Assistant back'); devNudge('Home Assistant back'); } });
+c.addEventListener('disconnected', () => { if (DEV.player) devLog('Home Assistant lost'); });
+};
+// Start (or wake) this device's player. Call it straight from a tap: phones only allow sound
+// after a tap, so every tap on Pip Player also unlocks the sound here.
+const devStart = () => {
+if (!DEV.hass) return;
+if (DEV.player) {
+devWake();
+if (!DEV.player.isConnected) devNudge('tap');
+else if (!DEV.entity && !DEV.finding) { devSet('on'); devFind(); }
+return;
+}
+if (!window.PipSendspin || !DEV.base) {
+if (DEV.st !== 'connecting') devSet('connecting');
+devPrepare().then(() => devStart()).catch((e) => { console.warn('[pip-player] this device', e); devSet('error', devMsg(e)); });
+return;
+}
+let p;
+try {
+p = new window.PipSendspin.SendspinPlayer({
+baseUrl: DEV.base,
+clientName: devName(),
+productName: 'Pip Player',
+storage: devStorage,
+audioElement: devEl(),
+correctionMode: (DEV.mode = devModeNow()),
+reconnect: {
+onReconnecting: (n) => { devLog('reconnecting, try ' + n); devKeep().catch(() => { /* next try */ }); },
+onReconnected: () => devBack(),
+onExhausted: () => devSet('error', 'Lost the connection'),
+},
+});
+} catch (e) { console.warn('[pip-player] this device', e); devSet('error', devMsg(e)); return; }
+DEV.player = p;
+DEV.wasOn = false;
+devHooks();
+devLog('starting on ' + location.origin + (DEV_MOBILE ? ' (phone/tablet)' : ''));
+try { p.unlock().catch(() => { /* next tap */ }); } catch (e) { /* ignore */ }
+devSet('connecting');
+p.connect().then(() => { devSet('on'); devFind(); }).catch((e) => {
+console.warn('[pip-player] this device', e);
+devLog('could not connect: ' + ((e && e.message) || e));
+try { p.destroy(); } catch (e2) { /* ignore */ }
+DEV.player = null;
+devSet('error', devMsg(e));
+});
+if (!DEV.mon) DEV.mon = setInterval(devTick, 500);
+if (!DEV.timer && !DEV.cfg.sendspin_url) DEV.timer = setInterval(() => { devKeep().catch(() => { /* next time */ }); }, 120000);
+};
+// wait until this device is a working speaker in Home Assistant
+const devReady = () => new Promise((resolve) => {
+devStart();
+const t0 = Date.now();
+const chk = () => {
+const st = DEV.entity && DEV.hass && DEV.hass.states[DEV.entity];
+if (DEV.st === 'on' && st && st.state !== 'unavailable') return resolve(true);
+if (DEV.st === 'error' || Date.now() - t0 > 25000) return resolve(false);
+setTimeout(chk, 250);
+};
+chk();
+});
 
 // CSS sizes written as "Nu" scale with the card width (1u = 1% of the device width).
 const CSS = `
@@ -281,17 +754,23 @@ if (!config || typeof config !== 'object') throw new Error('Pip Player: invalid 
 this._config = Object.assign({ finish: 'silver', volume_step: 2, seek_step: 5, clicker: true, splash: true, max_width: 340, controls: false, fit_screen: false }, config);
 this._key = 'pip-player:' + (config.storage_key || 'default');
 this._localHold = !!this._ls('hold');
+DEV.cfg = this._config;
+if (this._config.debug) window.pipPlayerDevice = DEV;
 if (this._built) { this._applyWidth(); this._render(); }
 }
 
 set hass(h) {
 const old = this._hass;
 this._hass = h;
+DEV.hass = h;
+devConn(h);
+if (!DEV.entity) { const saved = devLs('entity'); if (saved && h.states[saved]) DEV.entity = saved; }
 this._loadPrefs();
 if (!this._built) { this._build(); this._render(); return; }
 if (!old) { this._render(); return; }
 const ids = this._playerIds();
 if (this._config.lock_entity) ids.push(this._config.lock_entity);
+if (DEV.entity) ids.push(DEV.entity);
 if (ids.some((e) => old.states[e] !== h.states[e])) this._render();
 }
 
@@ -318,6 +797,7 @@ getCardSize() { return 14; }
 getGridOptions() { return { columns: 'full', rows: 'auto', min_columns: 6 }; }
 
 connectedCallback() {
+DEV.cards.add(this);
 clearInterval(this._timer);
 this._timer = setInterval(() => { this._render(); if (this._config && this._config.fit_screen) this._applyWidth(); }, 1000);
 if (this._onResize) {
@@ -326,6 +806,7 @@ setTimeout(() => { if (this._config && this._config.fit_screen) { try { window.s
 }
 }
 disconnectedCallback() {
+DEV.cards.delete(this);
 clearInterval(this._timer);
 this._timer = null;
 if (this._onResize) window.removeEventListener('resize', this._onResize);
@@ -383,18 +864,28 @@ const h = this._hass;
 const list = this._config.players;
 const names = {};
 if (Array.isArray(list)) list.forEach((p) => { if (p && typeof p === 'object' && p.entity && p.name) names[p.entity] = p.name; });
-return this._playerIds().map((e) => {
+// this device's own speaker is listed once, as "This device", at the top
+const own = DEV.entity;
+const out = this._playerIds().filter((e) => e !== own).map((e) => {
 const st = h.states[e];
 return { entity: e, st, name: names[e] || (st && st.attributes.friendly_name) || e, ok: !!st && st.state !== 'unavailable' };
 }).filter((p) => p.st);
+if (devCan(h, this._config)) out.unshift({ entity: DEV_ID, dev: true, st: own ? h.states[own] : null, name: 'This device', ok: true });
+return out;
 }
+// this._choice is what was picked (a speaker, or DEV_ID); this._player is the speaker it plays on
 _current() {
 const ps = this._players();
-let e = this._player || this._ls('player') || this._config.default_player;
+let e = this._choice || this._ls('player') || this._config.default_player;
+if (e === 'this_device') e = DEV_ID;
+// nothing picked on this device yet: play on the device itself
+if (!e && ps.some((p) => p.dev)) e = DEV_ID;
 if (!ps.find((p) => p.entity === e)) e = (ps.find((p) => p.ok) || ps[0] || {}).entity;
-this._player = e;
+this._choice = e;
+this._player = e === DEV_ID ? DEV.entity : e;
 return ps.find((p) => p.entity === e) || null;
 }
+_isDev() { return this._choice === DEV_ID; }
 _state() { return this._player ? this._hass.states[this._player] : null; }
 _ok(st) { return !!st && st.state !== 'unavailable'; }
 _hasMedia(st = this._state()) {
@@ -405,7 +896,7 @@ return ['playing', 'paused', 'buffering'].includes(st.state) || !!a.media_title 
 _browseEntity() {
 const cur = this._state();
 if (this._ok(cur)) return this._player;
-const p = this._players().find((x) => x.ok);
+const p = this._players().find((x) => x.ok && !x.dev);
 return p ? p.entity : null;
 }
 
@@ -417,7 +908,9 @@ const entry = { loading: true, t: Date.now(), items: c ? c.items : null, error: 
 this._cache[kind] = entry;
 this._render();
 try {
-const ent = this._browseEntity();
+let ent = this._browseEntity();
+// no other speaker to look music up with: connect this device and use it
+if (!ent && this._isDev() && (await devReady())) ent = DEV.entity;
 if (!ent) throw new Error('No speaker available');
 const r = await this._hass.callWS({ type: 'media_player/browse_media', entity_id: ent, media_content_id: kind, media_content_type: type });
 entry.items = (r.children || []).filter((i) => i.can_play || i.can_expand)
@@ -475,7 +968,8 @@ return this._normRes((r && r.response) || {});
 if (!/entry|not found|config/i.test((e && e.message) || '')) throw e;
 }
 }
-const ent = this._browseEntity();
+let ent = this._browseEntity();
+if (!ent && this._isDev() && (await devReady())) ent = DEV.entity;
 if (!ent) throw new Error('No speaker available');
 const r = await h.callWS({ type: 'call_service', domain: 'media_player', service: 'search_media', service_data: { search_query: data.name }, target: { entity_id: ent }, return_response: true });
 return this._fromBrowse(((r && r.response && r.response[ent]) || {}).result || []);
@@ -537,11 +1031,26 @@ return c;
 }
 
 /* ---------- actions ---------- */
+_offMsg() {
+if (!this._isDev()) return 'Speaker offline';
+if (DEV.st === 'connecting') return 'Connecting this device…';
+if (DEV.st === 'error') return DEV.err || 'Couldn’t connect';
+return 'Choose some music to start';
+}
 _svc(domain, service, data = {}, entity, retry) {
 if (this._blocked()) { this._held(); return Promise.resolve(false); }
+// This device: connect it first (the tap that got here also unlocks its sound)
+if (!entity && this._isDev() && !this._ok(this._state())) {
+this._toast('Connecting this device…', 2500);
+return devReady().then((ok) => {
+if (!ok) { this._toast(DEV.err || 'Couldn’t connect this device', 3000); return false; }
+this._player = DEV.entity;
+return this._svc(domain, service, data, DEV.entity, retry);
+});
+}
 const e = entity || this._player;
 const st = e && this._hass.states[e];
-if (!this._ok(st)) { this._toast('Speaker offline'); return Promise.resolve(false); }
+if (!this._ok(st)) { this._toast(this._offMsg()); return Promise.resolve(false); }
 // false = Pip Player shows its own message instead of Home Assistant's grey error bar
 return this._hass.callService(domain, service, data, { entity_id: e }, false)
 .then(() => true)
@@ -570,6 +1079,7 @@ _inUse(err) {
 return /simultaneous stream|concurrent source stream|is already playing on/i.test(String((err && err.message) || err || ''));
 }
 _nameOf(e) {
+if (e && e === DEV.entity) return 'this device';
 const p = this._players().find((x) => x.entity === e);
 const st = this._hass.states[e];
 return String((p && p.name) || (st && st.attributes.friendly_name) || e).replace(/ @ .*$/, '').trim();
@@ -660,7 +1170,7 @@ if (ok && rest.length) this._svc('music_assistant', 'play_media', { media_id: re
 _muted(st = this._state()) { return this._ok(st) && !!st.attributes.is_volume_muted; }
 _toggleMute() {
 const st = this._state();
-if (!this._ok(st)) return this._toast('Speaker offline');
+if (!this._ok(st)) return this._toast(this._offMsg());
 if (((st.attributes.supported_features || 0) & 8) !== 8) return this._toast('This speaker has no mute');
 const m = !st.attributes.is_volume_muted;
 this._svc('media_player', 'volume_mute', { is_volume_muted: m }).then((ok) => { if (ok) this._toast(m ? 'Muted' : 'Sound on', 1000); });
@@ -680,7 +1190,9 @@ const r = ((this._state() || {}).attributes || {}).repeat || 'off';
 this._svc('media_player', 'repeat_set', { repeat: { off: 'all', all: 'one', one: 'off' }[r] || 'all' });
 }
 _setPlayer(e, fromMenu) {
-this._player = e;
+this._choice = e;
+this._player = e === DEV_ID ? DEV.entity : e;
+if (e === DEV_ID) devStart();
 this._staged = null;
 this._ls('player', e);
 this._volLocal = null;
@@ -700,7 +1212,7 @@ return this._ok(st) ? +(st.attributes.volume_level || 0) : 0;
 }
 _volBy(d) {
 if (this._blocked()) return this._held();
-if (!this._ok(this._state())) return this._toast('Speaker offline');
+if (!this._ok(this._state())) return this._toast(this._offMsg());
 const v = Math.max(0, Math.min(1, Math.round((this._vol() + d) * 100) / 100));
 this._setVol(v);
 this._overlayUntil = Date.now() + 1600;
@@ -798,6 +1310,8 @@ if (!h) return false;
 const list = this._config.players;
 if (Array.isArray(list) && list.length) return false;
 if (!Object.keys(h.entities || {}).length) return false;
+// Music Assistant installed but no speakers yet: This device can still play
+if (devCan(h, this._config) && ((h.config && h.config.components) || []).includes('music_assistant')) return false;
 return !this._playerIds().length;
 }
 _menu(id) {
@@ -901,7 +1415,7 @@ return { title: 'Radio', items: listOr(c, 'radio', 'music_assistant', (it) => ({
 }
 if (id === 'speakers') {
 return { title: 'Speakers', items: this._players().map((p) => ({
-label: p.name, val: p.entity === this._player ? '✓' : (p.ok ? '' : 'Offline'), dis: !p.ok, act: () => this._setPlayer(p.entity, true),
+label: p.name, val: p.entity === this._choice ? '✓' : (p.ok ? '' : 'Offline'), dis: !p.ok, act: () => this._setPlayer(p.entity, true),
 })) };
 }
 if (id === 'bt') {
@@ -969,7 +1483,7 @@ return { title: 'Settings', items: [
 { label: 'Controls panel', val: this._ctlOn() ? 'On' : 'Off', act: () => this._setPref('controls', !this._ctlOn()) },
 ...(this._isAdmin() ? [{ label: 'Add Bluetooth speaker', push: 'bt' }] : []),
 { label: 'About', push: 'about' },
-{ label: 'Version', val: VERSION, push: 'ver' },
+{ label: 'Version', val: VERSION + (BUILD ? ' ' + BUILD : ''), push: 'ver' },
 ] };
 }
 return { title: '', items: [] };
@@ -1072,7 +1586,7 @@ async _skip(dir) {
 if (this._blocked()) return this._held();
 const e = this._player;
 const st = this._state();
-if (!this._ok(st)) return this._toast('Speaker offline');
+if (!this._ok(st)) return this._toast(this._offMsg());
 if (this._skipping) return;
 this._skipping = true;
 const a = st.attributes;
@@ -1270,7 +1784,7 @@ el.center.addEventListener('click', (e) => { e.stopPropagation(); this._press('c
 el.hold.addEventListener('click', () => this._toggleHold());
 el.exit.addEventListener('click', () => this._exit());
 el.np.addEventListener('click', () => { if (this._top().id === 'np') this._press('play'); });
-const wake = () => this._audioUnlock();
+const wake = () => { this._audioUnlock(); if (this._isDev() && !this._blocked()) devStart(); };
 el.body.addEventListener('touchend', wake, { passive: true });
 el.body.addEventListener('pointerup', wake);
 const sin = el.sin;
@@ -1491,6 +2005,8 @@ _setHTML(node, html) { if (node._h !== html) { node._h = html; node.innerHTML = 
 _draw() {
 const el = this._el;
 const cur = this._current();
+// get This device ready in the background, so the first tap can start the sound straight away
+if (this._isDev() && !DEV.prep && !DEV.player && DEV.hass && !(DEV.failAt && Date.now() - DEV.failAt < 60000)) devPrepare().catch(() => { /* tried again on the first tap */ });
 const st = this._state();
 const a = (st && st.attributes) || {};
 const ok = this._ok(st);
@@ -1560,13 +2076,18 @@ else if (b > el.list.scrollTop + el.list.clientHeight) el.list.scrollTop = b - e
 _drawNP(cur, st, a, ok) {
 const el = this._el;
 const has = this._hasMedia(st);
-let sg = ok ? this._staged : null;
+// This device can hold a waiting song before it has connected
+let sg = ok || this._isDev() ? this._staged : null;
 // someone started music elsewhere: drop the waiting song
-if (sg && st.state === 'playing' && Date.now() - sg.at > 4000) { this._staged = null; sg = null; }
+if (sg && st && st.state === 'playing' && Date.now() - sg.at > 4000) { this._staged = null; sg = null; }
 el.np.classList.toggle('staged', !!sg);
-el.np.classList.toggle('empty', !ok || (!has && !sg));
-if (!ok || (!has && !sg)) {
-this._setHTML(el.msg, !st ? `${ic(P.off)}<b>No speaker</b><span>Pick one in Speakers</span>`
+el.np.classList.toggle('empty', !sg && (!ok || !has));
+if (!sg && (!ok || !has)) {
+const dev = this._isDev() && !ok;
+this._setHTML(el.msg, dev ? (DEV.st === 'connecting' ? `${ic(P.speaker)}<b>Connecting…</b><span>This device</span>`
+: DEV.st === 'error' ? `${ic(P.off)}<b>Couldn’t connect</b><span>${esc(DEV.err)}</span>`
+: `${ic(P.note)}<b>This device</b><span>Press MENU to choose music</span>`)
+: !st ? `${ic(P.off)}<b>No speaker</b><span>Pick one in Speakers</span>`
 : !ok ? `${ic(P.off)}<b>Speaker offline</b><span>${esc(cur ? cur.name : '')}</span>`
 : `${ic(P.note)}<b>Nothing playing</b><span>Press MENU to choose music</span>`);
 return;
@@ -1681,12 +2202,13 @@ this._setHTML(el.pRep, `${ic(rep === 'one' ? P.repeatOne : P.repeat)}<span>${rep
 }
 
 /* ---------- card editor (point-and-click options) ---------- */
-const ED_DEF = { finish: 'silver', fit_screen: false, max_width: 340, splash: true, maker: true, clicker: true, controls: false, exit_button: false, volume_step: 2, seek_step: 5 };
-const ED_OPT = ['default_player', 'exit_path', 'lock_entity', 'storage_key', 'mass_entry_id'];
+const ED_DEF = { this_device: true, finish: 'silver', fit_screen: false, max_width: 340, splash: true, maker: true, clicker: true, controls: false, exit_button: false, volume_step: 2, seek_step: 5 };
+const ED_OPT = ['default_player', 'exit_path', 'lock_entity', 'storage_key', 'mass_entry_id', 'sendspin_url'];
 const ED_MASS = { integration: 'music_assistant', domain: 'media_player' };
 const ED_SCHEMA = [
 { name: 'players', selector: { entity: { multiple: true, filter: ED_MASS } } },
 { name: 'default_player', selector: { entity: { filter: ED_MASS } } },
+{ name: 'this_device', selector: { boolean: {} } },
 { name: '', type: 'expandable', title: 'Look', icon: 'mdi:palette-outline', schema: [
 { name: 'finish', selector: { select: { mode: 'dropdown', options: [{ value: 'silver', label: 'Silver' }, { value: 'black', label: 'Black (graphite)' }] } } },
 { name: '', type: 'grid', schema: [
@@ -1718,11 +2240,13 @@ const ED_SCHEMA = [
 { name: '', type: 'expandable', title: 'Advanced', icon: 'mdi:cog-outline', schema: [
 { name: 'storage_key', selector: { text: {} } },
 { name: 'mass_entry_id', selector: { config_entry: { integration: 'music_assistant' } } },
+{ name: 'sendspin_url', selector: { text: {} } },
 ] },
 ];
 const ED_LABEL = {
 players: 'Speakers',
 default_player: 'Start on this speaker',
+this_device: 'Offer This device as a speaker',
 finish: 'Finish',
 fit_screen: 'Fit the screen',
 max_width: 'Widest size',
@@ -1737,9 +2261,12 @@ exit_path: 'Page the power button opens',
 lock_entity: 'Admin lock helper',
 storage_key: 'Settings name',
 mass_entry_id: 'Music Assistant entry',
+sendspin_url: 'Sendspin address',
 };
 const ED_HELP = {
 players: 'Leave empty to use every Music Assistant speaker.',
+default_player: 'Leave empty to start on This device until someone picks a speaker.',
+this_device: 'Plays on the phone, tablet or computer showing Pip Player: its own speaker, headphones or Bluetooth earbuds.',
 finish: 'Each person can still change this in MENU, Settings.',
 fit_screen: 'For a full-screen phone page.',
 clicker: 'Each person can still change this in MENU, Settings.',
@@ -1747,6 +2274,7 @@ exit_path: 'Leave empty to go back. Example: /lovelace/0',
 lock_entity: 'A toggle helper. Leave empty for a simple lock. With a helper, only admins can move the Hold switch. It locks this card, not the speakers.',
 storage_key: 'Only needed if you use more than one Pip Player.',
 mass_entry_id: 'Only needed if search cannot find Music Assistant.',
+sendspin_url: 'Only if Music Assistant is not a Home Assistant app. Example: ws://192.168.1.20:8927/sendspin (home network only).',
 };
 
 class PipPlayerEditor extends HTMLElement {
