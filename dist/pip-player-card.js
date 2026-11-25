@@ -4,7 +4,7 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.11.0';
+const VERSION = '1.11.1';
 const BUILD = ''; // shown beside the version while testing; empty for a release
 
 const P = {
@@ -38,6 +38,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.11.1','25 Nov 2026',['This device starts at a comfortable 30% volume the first time, then remembers your last volume, so it never starts at full blast.']],
 ['1.11.0','25 Nov 2026',['New speaker: This device. Plays on the phone, tablet or computer you are using, through its own speaker, headphones or Bluetooth earbuds.','Works at home and away, through Home Assistant. Nothing extra to set up.','Used automatically until you pick another speaker, so Pip Player works even with no speakers set up.','Carries on by itself when the Wi-Fi drops or the phone moves to mobile data.','Headphones in or out? It pauses for a moment while your phone switches over, then carries on.']],
 ['1.10.3','24 Nov 2026',['Now in the HACS default store.','Made it clear the Hold switch locks this card, not the speakers.']],
 ['1.10.2','22 Nov 2026',['A mute symbol shows at the top of the screen when the speaker is muted.','Turn mute on or off in MENU, or just turn the volume to bring the sound back.']],
@@ -437,6 +438,8 @@ const devTick = () => {
 const p = DEV.player;
 if (!p) return;
 const on = p.isConnected;
+// remember the volume for next time
+if (on && typeof p.volume === 'number' && p.volume !== DEV.vol) { DEV.vol = p.volume; devLs('vol', p.volume); }
 if (on !== DEV.wasOn) { DEV.wasOn = on; if (on) devLog('link up'); else devDropped(); }
 const c = devCtx();
 if (c && c !== DEV.ctx) {
@@ -513,6 +516,10 @@ onExhausted: () => devSet('error', 'Lost the connection'),
 } catch (e) { console.warn('[pip-player] this device', e); devSet('error', devMsg(e)); return; }
 DEV.player = p;
 DEV.wasOn = false;
+// every page load is a new player, which would start at full volume: start at the volume last
+// used on this device instead, or a comfortable 30% the first time (told to the server on connect)
+const vol = Number(devLs('vol'));
+try { p.setVolume(vol > 0 && vol <= 100 ? vol : 30); } catch (e) { /* ignore */ }
 devHooks();
 devLog('starting on ' + location.origin + (DEV_MOBILE ? ' (phone/tablet)' : ''));
 try { p.unlock().catch(() => { /* next tap */ }); } catch (e) { /* ignore */ }

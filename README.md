@@ -78,6 +78,7 @@ No speaker nearby? Let your phone be the speaker. Press MENU › Speakers › Th
 Good to know:
 
 - Keep Pip Player open on the screen. Phones stop web pages playing in the background, so locking the phone or switching to another app will usually stop the music.
+- It starts at a gentle 30% volume the first time and remembers your volume after that, so it never opens at full blast.
 - On mobile data it uses about 45 MB an hour.
 - It needs the Music Assistant app running on Home Assistant OS (the usual set-up). If your Music Assistant server runs somewhere else, for example in Docker, set `sendspin_url` to its Sendspin address, such as `ws://192.168.1.20:8927/sendspin`. That works on your home network only.
 - To make it the starting speaker even when the card lists others, set `default_player: this_device`. To hide it, turn off *Offer This device as a speaker* in the card options.
