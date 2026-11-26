@@ -20,7 +20,7 @@ Spin the wheel to scroll and change the volume, press the buttons to skip and pl
 - Playlists, radio stations and speakers, all from Music Assistant.
 - A mute symbol shows when a speaker is muted. Mute it from the menu, and turning the volume brings the sound back.
 - Search your music and Spotify (or any other Music Assistant provider) by song, artist, album or playlist, plus search inside any playlist. Your phone keyboard pops up, and its microphone key lets you speak the search.
-- Picking or skipping a song gets it ready without playing it. Nothing starts until you press play.
+- Skipping while music plays goes straight to the next song. Picking a song, or skipping while paused, gets it ready without playing it until you press play.
 - If Spotify (or another service that only plays on one speaker at a time) is already playing elsewhere, Pip Player tells you which speaker has it and lets you play here or move that music here.
 - Hold switch: on its own it locks this card, or point it at a helper to make it an admin lock on this card, so only chosen people can take over the music from Pip Player. It locks the card, not the speakers.
 - Full-screen phone mode that fits the screen exactly, with a power button to leave.

@@ -4,8 +4,8 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.11.1';
-const BUILD = ''; // shown beside the version while testing; empty for a release
+const VERSION = '1.11.2';
+const BUILD = 'test 1'; // shown beside the version while testing; empty for a release
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -38,6 +38,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.11.2','26 Nov 2026',['Pressing next or previous while music is playing now goes straight to that song and keeps playing, with no mute or pause.','When the music is paused, skipping still gets the song ready without playing it.']],
 ['1.11.1','25 Nov 2026',['This device starts at a comfortable 30% volume the first time, then remembers your last volume, so it never starts at full blast.']],
 ['1.11.0','25 Nov 2026',['New speaker: This device. Plays on the phone, tablet or computer you are using, through its own speaker, headphones or Bluetooth earbuds.','Works at home and away, through Home Assistant. Nothing extra to set up.','Used automatically until you pick another speaker, so Pip Player works even with no speakers set up.','Carries on by itself when the Wi-Fi drops or the phone moves to mobile data.','Headphones in or out? It pauses for a moment while your phone switches over, then carries on.']],
 ['1.10.3','24 Nov 2026',['Now in the HACS default store.','Made it clear the Hold switch locks this card, not the speakers.']],
@@ -1589,7 +1590,8 @@ if ((s && test(s)) || Date.now() - t0 > ms) { clearInterval(iv); resolve(); }
 });
 }
 async _skip(dir) {
-// move to the next/previous track but leave it paused until play is pressed
+// playing: go straight to the next/previous track and keep playing.
+// paused or stopped: move to it but leave it paused until play is pressed.
 if (this._blocked()) return this._held();
 const e = this._player;
 const st = this._state();
@@ -1597,12 +1599,10 @@ if (!this._ok(st)) return this._toast(this._offMsg());
 if (this._skipping) return;
 this._skipping = true;
 const a = st.attributes;
-const canMute = ((a.supported_features || 0) & 8) === 8 && !a.is_volume_muted;
+const wasPlaying = st.state === 'playing';
+// only the paused case needs muting, to hide the moment the speaker starts the new song
+const canMute = !wasPlaying && ((a.supported_features || 0) & 8) === 8 && !a.is_volume_muted;
 try {
-if (st.state === 'playing') {
-await this._quiet('media_pause', {}, e);
-await this._waitState(e, (s) => s.state !== 'playing', 2500);
-}
 if (canMute) await this._quiet('volume_mute', { is_volume_muted: true }, e);
 const ok = await this._quiet(dir > 0 ? 'media_next_track' : 'media_previous_track', {}, e);
 if (!ok) {
@@ -1610,7 +1610,7 @@ if (!ok) {
 if (this._inUse(this._qErr)) this._busy(this._qErr, e, () => this._toast('Now press play', 1500));
 else this._toast("Couldn't do that");
 }
-else {
+else if (!wasPlaying) {
 await this._waitState(e, (s) => s.state === 'playing', 4000);
 await this._quiet('media_pause', {}, e);
 await this._waitState(e, (s) => s.state !== 'playing', 2500);
