@@ -4,8 +4,8 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.11.3';
-const BUILD = ''; // shown beside the version while testing; empty for a release
+const VERSION = '1.11.4';
+const BUILD = 'test 1'; // shown beside the version while testing; empty for a release
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -38,6 +38,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.11.4','27 Nov 2026',['This device: no more kick at the start of each song. The phone\'s sound now keeps running between songs instead of stopping and restarting, and each song is given a little more time to arrive.','This device: fixed songs sometimes having no sound after skipping.']],
 ['1.11.3','27 Nov 2026',['This device: updated its sound engine to the latest Sendspin (6.1.0), which Music Assistant now expects. Cleaner sound, with fewer timing corrections and jumps.']],
 ['1.11.2','26 Nov 2026',['Pressing next or previous while music is playing now goes straight to that song and keeps playing, with no mute or pause.','When the music is paused, skipping still gets the song ready without playing it.']],
 ['1.11.1','25 Nov 2026',['This device starts at a comfortable 30% volume the first time, then remembers your last volume, so it never starts at full blast.']],
@@ -238,6 +239,15 @@ look();
 };
 // What happened, for fault finding: always to the browser console, and to the Home Assistant log
 // (Settings › System › Logs, "pip_player") when the card has debug: true.
+// debug: copy the sound engine's own messages (resyncs, timing) into the fault-finding log
+const devTapConsole = () => {
+if (DEV.tapped) return;
+DEV.tapped = true;
+['log', 'warn', 'error'].forEach((k) => {
+const orig = console[k].bind(console);
+console[k] = (...a) => { orig(...a); try { if (typeof a[0] === 'string' && a[0].startsWith('Sendspin')) devLog(a.map((x) => (typeof x === 'string' ? x : (x && x.message) || String(x))).join(' ').slice(0, 300)); } catch (e) { /* ignore */ } };
+});
+};
 const devLog = (m) => {
 console.info('[pip-player] ' + m);
 if (!DEV.cfg || !DEV.cfg.debug) return;
@@ -333,8 +343,25 @@ DEV.unmute = false;
 if (DEV.el && DEV.el.muted !== on) { DEV.el.muted = on; devLog(on ? 'muted' : 'unmuted'); }
 };
 // the phone stopped our <audio> element itself
+// Between songs the engine pauses the phone's sound and starts it again for the next song. On a
+// phone that restart is heard as a kick at the start of every song, and the phone can refuse to
+// restart it at all (no sound). So keep the sound running through a song change: only pause it once
+// the music has really stopped for 2 seconds.
+const devKeepSound = (p) => {
+const s = p && p.scheduler;
+if (!DEV_MOBILE || !s || s.pipKeep || typeof s.stopAudioElement !== 'function' || typeof s.startAudioElement !== 'function') return;
+s.pipKeep = true;
+const stop = s.stopAudioElement.bind(s);
+const start = s.startAudioElement.bind(s);
+s.stopAudioElement = () => {
+clearTimeout(DEV.elStop);
+DEV.elStop = setTimeout(() => { DEV.elStop = null; if (!p.isPlaying) { DEV.selfPause = Date.now(); stop(); } }, 2000);
+};
+s.startAudioElement = () => { clearTimeout(DEV.elStop); DEV.elStop = null; start(); };
+};
 const devPaused = () => {
 const p = DEV.player;
+if (Date.now() - (DEV.selfPause || 0) < 1500) { devLog('sound paused (music stopped)'); return; }
 const playing = !!(p && p.isConnected && p.isPlaying);
 devLog('sound paused' + (playing ? ' by the phone' : ''));
 if (playing) devHold('the phone stopped the sound');
@@ -517,6 +544,7 @@ productName: 'Pip Player',
 storage: devStorage,
 audioElement: devEl(),
 correctionMode: (DEV.mode = devModeNow()),
+requiredLeadTimeMs: DEV_MOBILE ? 800 : 250,
 reconnect: {
 onReconnecting: (n) => { devLog('reconnecting, try ' + n); devKeep().catch(() => { /* next try */ }); },
 onReconnected: () => devBack(),
@@ -525,12 +553,14 @@ onExhausted: () => devSet('error', 'Lost the connection'),
 });
 } catch (e) { console.warn('[pip-player] this device', e); devSet('error', devMsg(e)); return; }
 DEV.player = p;
+devKeepSound(p);
 DEV.wasOn = false;
 // every page load is a new player, which would start at full volume: start at the volume last
 // used on this device instead, or a comfortable 30% the first time (told to the server on connect)
 const vol = Number(devLs('vol'));
 try { p.setVolume(vol > 0 && vol <= 100 ? vol : 30); } catch (e) { /* ignore */ }
 devHooks();
+if (DEV.cfg.debug) devTapConsole();
 devLog('starting on ' + location.origin + (DEV_MOBILE ? ' (phone/tablet)' : ''));
 try { p.unlock().catch(() => { /* next tap */ }); } catch (e) { /* ignore */ }
 devSet('connecting');
