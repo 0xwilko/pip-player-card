@@ -4,8 +4,8 @@
 (() => {
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
-const VERSION = '1.11.2';
-const BUILD = ''; // shown beside the version while testing; empty for a release
+const VERSION = '1.11.3';
+const BUILD = 'test 1'; // shown beside the version while testing; empty for a release
 
 const P = {
 play: 'M8 5v14l11-7z',
@@ -38,6 +38,7 @@ discord: 'https://discord.com/users/1346380954897354782',
 };
 // version history, newest first - add an entry with every new version
 const CHANGES = [
+['1.11.3','27 Nov 2026',['This device: updated its sound engine to the latest Sendspin (6.1.0), which Music Assistant now expects. Cleaner sound, with fewer timing corrections and jumps.']],
 ['1.11.2','26 Nov 2026',['Pressing next or previous while music is playing now goes straight to that song and keeps playing, with no mute or pause.','When the music is paused, skipping still gets the song ready without playing it.']],
 ['1.11.1','25 Nov 2026',['This device starts at a comfortable 30% volume the first time, then remembers your last volume, so it never starts at full blast.']],
 ['1.11.0','25 Nov 2026',['New speaker: This device. Plays on the phone, tablet or computer you are using, through its own speaker, headphones or Bluetooth earbuds.','Works at home and away, through Home Assistant. Nothing extra to set up.','Used automatically until you pick another speaker, so Pip Player works even with no speakers set up.','Carries on by itself when the Wi-Fi drops or the phone moves to mobile data.','Headphones in or out? It pauses for a moment while your phone switches over, then carries on.']],
@@ -126,6 +127,14 @@ let n = base;
 for (let i = 2; used.has(n) && i < 20; i++) n = base + ' ' + i;
 devLs('name', n);
 return n;
+};
+// Sendspin 6 wants the full ws:// or wss:// address of the /sendspin endpoint (it used to
+// take the page address and work this out itself). Keeps any path, e.g. Home Assistant's app ingress.
+const devWsUrl = (base) => {
+const u = new URL(String(base), location.href);
+if (/^wss?:$/.test(u.protocol)) return u.href;
+const path = u.pathname.replace(/\/$/, '');
+return (u.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + u.host + (path.endsWith('/sendspin') ? path : path + '/sendspin');
 };
 const devCan = (h, cfg) => !!h && cfg.this_device !== false && (!!cfg.sendspin_url || ((h.config && h.config.components) || []).includes('hassio'));
 const devSet = (st, err) => {
@@ -502,7 +511,7 @@ return;
 let p;
 try {
 p = new window.PipSendspin.SendspinPlayer({
-baseUrl: DEV.base,
+url: devWsUrl(DEV.base),
 clientName: devName(),
 productName: 'Pip Player',
 storage: devStorage,
