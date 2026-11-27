@@ -5,7 +5,7 @@
 const TAG = 'pip-player-card';
 if (customElements.get(TAG)) return;
 const VERSION = '1.11.2';
-const BUILD = 'test 1'; // shown beside the version while testing; empty for a release
+const BUILD = ''; // shown beside the version while testing; empty for a release
 
 const P = {
 play: 'M8 5v14l11-7z',
